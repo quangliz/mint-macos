@@ -9,8 +9,8 @@ Tested on Linux Mint 22.3 with Cinnamon 6.6 (X11).
 ## Install
 
 ```bash
-git clone git@github.com:quangliz/cinnamon-macos.git ~/cinnamon-macos
-cd ~/cinnamon-macos
+git clone git@github.com:quangliz/mint-macos.git ~/mint-macos
+cd ~/mint-macos
 ./install.sh
 ```
 
