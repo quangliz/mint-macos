@@ -92,7 +92,7 @@ step "Installing Cinnamon applets"
 mkdir -p "$APPLETS_DIR"
 for uuid in "${UUIDS[@]}"; do
     rm -rf "${APPLETS_DIR:?}/$uuid"
-    cp -r "$REPO/applets/$uuid" "$APPLETS_DIR/"
+    cp -rL "$REPO/applets/$uuid" "$APPLETS_DIR/"   # -L: glass.js is a link to applets/shared
     note "$uuid"
 done
 

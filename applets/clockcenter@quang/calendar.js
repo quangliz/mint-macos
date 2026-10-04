@@ -9,7 +9,6 @@ const Signals = imports.signals;
 const Pango = imports.gi.Pango;
 const Gettext_gtk30 = imports.gettext.domain('gtk30');
 const Cinnamon = imports.gi.Cinnamon;
-const Settings = imports.ui.settings;
 const Mainloop = imports.mainloop;
 
 const MSECS_IN_DAY = 24 * 60 * 60 * 1000;
@@ -17,9 +16,6 @@ const WEEKDATE_HEADER_WIDTH_DIGITS = 3;
 const SHOW_WEEKDATE_KEY = 'show-week-numbers';
 const FIRST_WEEKDAY_KEY = 'first-day-of-week';
 const DESKTOP_SCHEMA = 'org.cinnamon.desktop.interface';
-
-// in org.cinnamon.desktop.interface
-const CLOCK_FORMAT_KEY        = 'clock-format';
 
 function _sameDay(dateA, dateB) {
     return (dateA.getDate() == dateB.getDate() &&
@@ -34,59 +30,12 @@ function _today(date) {
             date.getYear() == today.getYear());
 }
 
-function _sameYear(dateA, dateB) {
-    return (dateA.getYear() == dateB.getYear());
-}
-
 /* TODO: maybe needs config - right now we assume that Saturday and
  * Sunday are non-work days (not true in e.g. Israel, it's Sunday and
  * Monday there)
  */
 function _isWorkDay(date) {
     return date.getDay() != 0 && date.getDay() != 6;
-}
-
-function _getBeginningOfDay(date) {
-    let ret = new Date(date.getTime());
-    ret.setHours(0);
-    ret.setMinutes(0);
-    ret.setSeconds(0);
-    ret.setMilliseconds(0);
-    return ret;
-}
-
-function _getEndOfDay(date) {
-    let ret = new Date(date.getTime());
-    ret.setHours(23);
-    ret.setMinutes(59);
-    ret.setSeconds(59);
-    ret.setMilliseconds(999);
-    return ret;
-}
-
-function _formatEventTime(event, clockFormat) {
-    let ret;
-    if (event.allDay) {
-        /* Translators: Shown in calendar event list for all day events
-         * Keep it short, best if you can use less then 10 characters
-         */
-        ret = C_("event list time", "All Day");
-    } else {
-        switch (clockFormat) {
-        case '24h':
-            /* Translators: Shown in calendar event list, if 24h format */
-            ret = event.date.toLocaleFormat(C_("event list time", "%H:%M"));
-            break;
-
-        default:
-            /* explicit fall-through */
-        case '12h':
-            /* Translators: Shown in calendar event list, if 12h format */
-            ret = event.date.toLocaleFormat(C_("event list time", "%l:%M %p"));
-            break;
-        }
-    }
-    return ret;
 }
 
 function _getDigitWidth(actor){
@@ -114,35 +63,6 @@ function _getCalendarDayAbbreviation(dayNumber) {
     ];
 
     return abbreviations[dayNumber];
-}
-
-// Abstraction for an appointment/event in a calendar
-
-class CalendarEvent {
-    constructor(date, end, summary, allDay) {
-        this.date = date;
-        this.end = end;
-        this.summary = summary;
-        this.allDay = allDay;
-    }
-}
-
-function _datesEqual(a, b) {
-    if (a < b)
-        return false;
-    else if (a > b)
-        return false;
-    return true;
-}
-
-function _dateIntervalsOverlap(a0, a1, b0, b1)
-{
-    if (a1 <= b0)
-        return false;
-    else if (b1 <= a0)
-        return false;
-    else
-        return true;
 }
 
 class Calendar {
@@ -260,14 +180,6 @@ class Calendar {
         return this._selectedDate;
     }
 
-    todaySelected() {
-        let today = new Date();
-
-        return this._selectedDate.getDate() == today.getDate() &&
-               this._selectedDate.getMonth() == today.getMonth() &&
-               this._selectedDate.getYear() == today.getYear();
-    }
-
     _buildHeader() {
         let offsetCols = this.show_week_numbers ? 1 : 0;
         this.actor.destroy_all_children();
@@ -370,14 +282,6 @@ class Calendar {
         let newDate = new Date();
         newDate.setFullYear(newYear, newMonth, newDayOfMonth);
         this.queue_set_date(newDate);
-    }
-
-    _onPrevYearButtonClicked() {
-        this._applyDateBrowseAction(-1, 0);
-    }
-
-    _onNextYearButtonClicked() {
-        this._applyDateBrowseAction(+1, 0);
     }
 
     _onPrevMonthButtonClicked() {

@@ -61,11 +61,6 @@
         "default": true,
         "description": "Ignore transient notifications"
     },
-    "showNewestFirst": {
-        "type": "switch",
-        "default": true,
-        "description": "Show newest notifications first"
-    },
     "keyNotif": {
         "type": "keybinding",
         "default": "<Super>n",

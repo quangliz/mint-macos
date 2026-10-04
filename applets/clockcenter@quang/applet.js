@@ -12,15 +12,11 @@ const Calendar = require('./calendar');
 const EventView = require('./eventView');
 const CinnamonDesktop = imports.gi.CinnamonDesktop;
 const Main = imports.ui.main;
-const Separator = imports.ui.separator;
 const MessageTray = imports.ui.messageTray;
-const Urgency = imports.ui.messageTray.Urgency;
 const NotificationDestroyedReason = imports.ui.messageTray.NotificationDestroyedReason;
 const UUID = "clockcenter@quang";
 const Glass = require('./glass');
 
-const DAY_FORMAT = CinnamonDesktop.WallClock.lctime_format("cinnamon", "%A");
-const DATE_FORMAT_SHORT = CinnamonDesktop.WallClock.lctime_format("cinnamon", _("%B %-e, %Y"));
 const DATE_FORMAT_FULL = CinnamonDesktop.WallClock.lctime_format("cinnamon", _("%A, %B %-e, %Y"));
 
 class CinnamonCalendarApplet extends Applet.TextApplet {
@@ -43,9 +39,8 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
             this.clock_notify_id = 0;
 
             // Events
-            this.events_manager = new EventView.EventsManager(this.settings, this.desktop_settings);
-            this.events_manager.connect("events-manager-ready", this._events_manager_ready.bind(this));
-            this.events_manager.connect("has-calendars-changed", this._has_calendars_changed.bind(this));
+            this.events_manager = new EventView.EventsManager(this.settings);
+            this.events_manager.connect("events-manager-ready", () => this.events_manager.select_date(this._calendar.getSelectedDate(), true));
 
             this._buildNotificationSection();
 
@@ -58,19 +53,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
             this.menu.addActor(box);
             this._buildUpNext(box);
 
-            this.event_list = this.events_manager.get_event_list();
-            this.event_list.connect("launched-calendar", Lang.bind(this.menu, this.menu.toggle));
-
-            // hack to allow event list scrollbar to be dragged.
-            this.event_list.connect("start-pass-events", Lang.bind(this.menu, () => {
-                this.menu.passEvents = true;
-            }));
-            this.event_list.connect("stop-pass-events", Lang.bind(this.menu, () => {
-                this.menu.passEvents = false;
-            }));
-
-            box.add_actor(this.event_list.actor);
-
             let calbox = new St.BoxLayout(
                 {
                     vertical: true,
@@ -78,57 +60,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
                     x_expand: true
                 }
             );
-
-            this.go_home_button = new St.BoxLayout(
-                {
-                    style_class: "calendar-today-home-button",
-                    x_align: Clutter.ActorAlign.CENTER,
-                    reactive: true,
-                    vertical: true
-                }
-            );
-
-            this.go_home_button.connect("enter-event", Lang.bind(this, (actor, event) => {
-                actor.add_style_pseudo_class("hover");
-            }));
-
-            this.go_home_button.connect("leave-event", Lang.bind(this, (actor, event) => {
-                actor.remove_style_pseudo_class("hover");
-            }));
-
-            this.go_home_button.connect("button-press-event", Lang.bind(this, (actor, event) => {
-                if (event.get_button() == Clutter.BUTTON_PRIMARY) {
-                    return Clutter.EVENT_STOP;
-                }
-            }));
-
-            this.go_home_button.connect("button-release-event", Lang.bind(this, (actor, event) => {
-                if (event.get_button() == Clutter.BUTTON_PRIMARY) {
-                    // button immediately becomes non-reactive, so leave-event will never fire.
-                    actor.remove_style_pseudo_class("hover");
-                    this._resetCalendar();
-                    return Clutter.EVENT_STOP;
-                }
-            }));
-
-            calbox.add_actor(this.go_home_button);
-            this.go_home_button.hide();
-
-            // Calendar
-            this._day = new St.Label(
-                {
-                    style_class: "calendar-today-day-label"
-                }
-            );
-            this.go_home_button.add_actor(this._day);
-
-            // Date
-            this._date = new St.Label(
-                {
-                    style_class: "calendar-today-date-label"
-                }
-            );
-            this.go_home_button.add_actor(this._date);
 
             this._calendar = new Calendar.Calendar(this.settings, this.events_manager);
             this._calendar.connect("selected-date-changed", Lang.bind(this, this._updateClockAndDate));
@@ -152,7 +83,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
             this.settings.bind("keyNotif", "keyNotif", this._setKeybinding);
             this.settings.bind("keyClear", "keyClear", this._setKeybinding);
             this.settings.bind("ignoreTransientNotifications", "ignoreTransientNotifications");
-            this.settings.bind("showNewestFirst", "showNewestFirst", this._updateNotifications);
             Main.messageTray.connect('notify-applet-update', (tray, n) => this._notificationAdded(n));
             this._setKeybinding();
 
@@ -321,22 +251,16 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this.notifications = [];
         // Scope our stylesheet to this popup only
         this.menu.box.add_style_class_name("ccn");
-        // Frosted glass sheet behind the content (ccn-glass styles the sheet itself)
-        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6 });
+        // Frosted glass sheet behind the content; ccn-light switches the
+        // cards to light glass when the Cinnamon theme is light
+        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6, padding: "13px 6px",
+            onTheme: light => light ? this.menu.box.add_style_class_name("ccn-light")
+                                    : this.menu.box.remove_style_class_name("ccn-light") });
         // Switching the Cinnamon theme (e.g. the Dark Mode tile, or WhiteSur)
         // builds a new St.Theme and silently drops stylesheets added to the old
         // one, so load ours again whenever that happens.
         let themeContext = St.ThemeContext.get_for_stage(global.stage);
         this._themeCtxId = themeContext.connect("changed", () => this._loadStylesheet());
-        if (this._glass.active) this.menu.box.add_style_class_name("ccn-glass");
-        // Light glass when the Cinnamon theme is light (the Dark Mode tile switches it)
-        this._themeSettings = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
-        let applyMode = () => {
-            if (/dark/i.test(this._themeSettings.get_string("name"))) this.menu.box.remove_style_class_name("ccn-light");
-            else this.menu.box.add_style_class_name("ccn-light");
-        };
-        this._themeId = this._themeSettings.connect("changed::name", applyMode);
-        applyMode();
         this._loadStylesheet();
 
         let section = new St.BoxLayout({ vertical: true, style_class: "ccn-section" });
@@ -567,28 +491,18 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this._updateNotifications();
     }
 
-    _refreshTimestamps() {
-        // Cards show relative times; rebuilding is cheap
-        this._updateNotifications();
-    }
-
-    _clockNotify(obj, pspec, data) {
-        this._updateClockAndDate();
-    }
-
     on_applet_clicked(event) {
         this._openMenu();
     }
 
     _openMenu() {
-        this._refreshTimestamps();
+        this._updateNotifications();   // cards show relative times; rebuilding is cheap
         this.menu.toggle();
     }
 
     _onSettingsChanged() {
         this._updateFormatString();
         this._updateClockAndDate();
-        this.event_list.actor.visible = false;  // compact list under the calendar instead
         this.events_manager.select_date(this._calendar.getSelectedDate(), true);
     }
 
@@ -641,15 +555,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         }
     }
 
-    _events_manager_ready(em) {
-        this.event_list.actor.visible = false;  // compact list under the calendar instead
-        this.events_manager.select_date(this._calendar.getSelectedDate(), true);
-    }
-
-    _has_calendars_changed(em) {
-        this.event_list.actor.visible = false;  // compact list under the calendar instead
-    }
-
     _updateClockAndDate() {
         let label_string = this.clock.get_clock();
 
@@ -658,15 +563,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         }
         else if (this._is_entered) {
             label_string = this.clock.get_clock_for_format(this.custom_format);
-        }
-
-        this.go_home_button.reactive = !this._calendar.todaySelected();
-        if (this._calendar.todaySelected()) {
-            this.go_home_button.reactive = false;
-            this.go_home_button.set_style_class_name("calendar-today-home-button");
-        } else {
-            this.go_home_button.reactive = true;
-            this.go_home_button.set_style_class_name("calendar-today-home-button-enabled");
         }
 
         this.set_applet_label(label_string);
@@ -680,11 +576,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
             }
         }
 
-        let dateFormattedShort = this.clock.get_clock_for_format(DATE_FORMAT_SHORT).capitalize();
-        let dayFormatted = this.clock.get_clock_for_format(DAY_FORMAT).capitalize();
-
-        this._day.set_text(dayFormatted);
-        this._date.set_text(dateFormattedShort);
         this.set_applet_tooltip(dateFormattedTooltip);
 
         this.events_manager.select_date(this._calendar.getSelectedDate());
@@ -695,7 +586,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this._onSettingsChanged();
 
         if (this.clock_notify_id == 0) {
-            this.clock_notify_id = this.clock.connect("notify::clock", () => this._clockNotify());
+            this.clock_notify_id = this.clock.connect("notify::clock", () => this._updateClockAndDate());
         }
 
         /* Populates the calendar so our menu allocation is correct for animation */
@@ -710,7 +601,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         if (this._themeCtxId) St.ThemeContext.get_for_stage(global.stage).disconnect(this._themeCtxId);
         this._unloadStylesheet();
         if (this._glass) this._glass.destroy();
-        if (this._themeId) this._themeSettings.disconnect(this._themeId);
         MessageTray.extensionsHandlingNotifications--;
         if (MessageTray.extensionsHandlingNotifications === 0) this._clearNotifications();
         if (this.clock_notify_id > 0) {

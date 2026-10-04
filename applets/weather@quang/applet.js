@@ -35,25 +35,10 @@ function icon(name, size) {
 }
 
 function label(text, style, dim) {
-    let l = new St.Label({ text, style: style || "" });
+    let l = new St.Label({ text, style: style || null });
     l.clutter_text.ellipsize = Pango.EllipsizeMode.END;
     if (dim) l.opacity = 165;   // works with both light and dark theme text
     return l;
-}
-
-// Same glass panes as the Control Center
-// The sheet itself is just the blur, no tint or border, like the clock panel
-const SHEET = "background-color: transparent; border: none;";
-function glassPalette(light) {
-    const sheen = (t, b) => "background-gradient-direction: vertical;" +
-        ` background-gradient-start: rgba(255,255,255,${t}); background-gradient-end: rgba(255,255,255,${b});`;
-    return light ? {
-        sheet: SHEET,
-        pane: sheen(0.72, 0.48) + " border: 1px solid rgba(255,255,255,0.80);",
-    } : {
-        sheet: SHEET,
-        pane: sheen(0.15, 0.06) + " border: 1px solid rgba(255,255,255,0.12);",
-    };
 }
 
 class WeatherApplet extends Applet.TextIconApplet {
@@ -71,12 +56,12 @@ class WeatherApplet extends Applet.TextIconApplet {
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
-        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6 });
-        this.themeSettings = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
-        this.themeId = this.themeSettings.connect("changed::name", () => this._render());
 
         this.content = new St.BoxLayout({ vertical: true, style: "padding: 6px 14px; spacing: 12px; width: 330px;" });
         this.menu.addActor(this.content);
+        // Same glass and panes as the Control Center; redraw on a light/dark switch
+        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6, padding: "10px 0",
+                                                           onTheme: () => { if (this._glass) this._render(); } });
         this.menu.connect("open-state-changed", (m, open) => {
             // refresh if the data is getting old
             if (open && (!this.fetchedAt || Date.now() - this.fetchedAt > 10 * 60 * 1000)) this._fetch();
@@ -97,7 +82,6 @@ class WeatherApplet extends Applet.TextIconApplet {
         if (this.timer) Mainloop.source_remove(this.timer);
         this.timer = null;
         if (this._glass) this._glass.destroy();
-        this.themeSettings.disconnect(this.themeId);
         this.settings.finalize();
     }
 
@@ -239,9 +223,7 @@ class WeatherApplet extends Applet.TextIconApplet {
     }
 
     _render() {
-        let light = !/dark/i.test(this.themeSettings.get_string("name"));
-        let pal = glassPalette(light);
-        if (this._glass.active) this.menu.box.style = pal.sheet + " border-radius: 20px; padding: 10px 0;";
+        let pane = Glass.palette(this._glass.light).pane(false);
         this.content.destroy_all_children();
         this._buildSearch();
 
@@ -286,7 +268,7 @@ class WeatherApplet extends Applet.TextIconApplet {
                                      `Wind ${Math.round(c.wind_speed_10m)} ${wind}`, "font-size: 9pt;", true));
 
         // Hourly strip
-        let hourly = new St.BoxLayout({ vertical: false, style: pal.pane + " border-radius: 16px; padding: 10px 8px;" });
+        let hourly = new St.BoxLayout({ vertical: false, style: pane + " border-radius: 16px; padding: 10px 8px;" });
         let h = d.hourly;
         let step = 2;
         for (let i = 0; i <= HOURS && i < h.time.length; i += step) {
@@ -309,7 +291,7 @@ class WeatherApplet extends Applet.TextIconApplet {
         this.content.add_child(hourly);
 
         // 7-day forecast with temperature range bars
-        let daily = new St.BoxLayout({ vertical: true, style: pal.pane + " border-radius: 16px; padding: 8px 12px; spacing: 6px;" });
+        let daily = new St.BoxLayout({ vertical: true, style: pane + " border-radius: 16px; padding: 8px 12px; spacing: 6px;" });
         let lo = Math.min(...day.temperature_2m_min), hi = Math.max(...day.temperature_2m_max);
         const BAR = 90;
         for (let i = 0; i < day.time.length; i++) {

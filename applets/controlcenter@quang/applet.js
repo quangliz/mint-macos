@@ -44,26 +44,8 @@ const MprisAppProxy = Gio.DBusProxy.makeProxyWrapper(`<node>
   </interface>
 </node>`);
 
-const ACCENT = "#1f9ede";
-
-// Glass colours for dark and light themes. Text colour comes from the
-// Cinnamon theme itself (light text on Mint-Y-Dark, dark text on Mint-Y).
-// The sheet itself is just the blur, no tint or border, like the clock panel
-const SHEET = "background-color: transparent; border: none;";
-function glassPalette(light) {
-    const sheen = (top, bottom) => "background-gradient-direction: vertical;" +
-        ` background-gradient-start: rgba(255,255,255,${top}); background-gradient-end: rgba(255,255,255,${bottom});`;
-    return light ? {
-        sheet: SHEET,
-        pane: hover => sheen(hover ? 0.88 : 0.72, hover ? 0.68 : 0.48) + " border: 1px solid rgba(255,255,255,0.80);",
-        circle: "background-color: rgba(0,0,0,0.08);",
-    } : {
-        sheet: SHEET,
-        pane: hover => sheen(hover ? 0.22 : 0.15, hover ? 0.12 : 0.06) + " border: 1px solid rgba(255,255,255,0.12);",
-        circle: "background-color: rgba(255,255,255,0.14);",
-    };
-}
-let GLASS = glassPalette(false);  // Mint-Y-Aqua accent, shared with the theme sliders and the clock panel
+const ACCENT = "#1f9ede";  // Mint-Y-Aqua accent, shared with the theme sliders and the clock panel
+let GLASS = Glass.palette(false);
 
 // Run a command asynchronously; callback(ok, stdout)
 function run(argv, callback) {
@@ -113,11 +95,11 @@ class Tile {
         this.actor = new St.Button({ reactive: true, can_focus: true, track_hover: true, x_expand: true });
         // Left-align tile contents so icons line up in a column
         let box = new St.BoxLayout({ vertical: false, style: "spacing: 10px;", x_expand: true,
-                                     x_align: imports.gi.Clutter.ActorAlign.FILL });
+                                     x_align: Clutter.ActorAlign.FILL });
         this.iconBin = new St.Bin({ style: "border-radius: 99px; padding: 7px;" });
         this.icon = new St.Icon({ icon_name: iconName, icon_type: St.IconType.SYMBOLIC, icon_size: 16 });
         this.iconBin.set_child(this.icon);
-        let labels = new St.BoxLayout({ vertical: true, y_align: imports.gi.Clutter.ActorAlign.CENTER });
+        let labels = new St.BoxLayout({ vertical: true, y_align: Clutter.ActorAlign.CENTER });
         this.title = new St.Label({ text: title, style: "font-weight: bold;" });
         this.sub = new St.Label({ text: "", style: "font-size: 8.5pt; opacity: 0.75;" });
         labels.add_child(this.title);
@@ -170,11 +152,10 @@ class ControlCenter extends Applet.TextIconApplet {
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
-        // Frosted glass sheet behind the content; falls back to the theme if unavailable
-        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6 });
-        // Light or dark glass follows the Cinnamon theme (the Dark Mode tile switches it)
-        this._glassThemeSettings = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
-        this._glassThemeId = this._glassThemeSettings.connect("changed::name", () => this._applyGlassTheme());
+        // Frosted glass sheet behind the content; falls back to the theme if unavailable.
+        // Light or dark panes follow the Cinnamon theme (the Dark Mode tile switches it).
+        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6, padding: "10px 6px",
+                                                           onTheme: () => this._applyGlassTheme() });
 
         this.nightSettings = new Gio.Settings({ schema_id: "org.cinnamon.settings-daemon.plugins.color" });
         this.notifSettings = new Gio.Settings({ schema_id: "org.cinnamon.desktop.notifications" });
@@ -207,7 +188,6 @@ class ControlCenter extends Applet.TextIconApplet {
 
     on_applet_removed_from_panel() {
         if (this._glass) this._glass.destroy();
-        if (this._glassThemeId) this._glassThemeSettings.disconnect(this._glassThemeId);
         imports.ui.main.systrayManager.unregisterTrayIconReplacement(this.uuid);
         if (this._batteryTimer) Mainloop.source_remove(this._batteryTimer);
         if (this._upower && this._upowerId) this._upower.disconnect(this._upowerId);
@@ -226,17 +206,13 @@ class ControlCenter extends Applet.TextIconApplet {
         b.style = "border-radius: 99px; padding: 8px; " + GLASS.pane(b.hover);
     }
 
+    // Runs once everything is built, then on every light/dark switch
     _applyGlassTheme() {
-        let light = !/dark/i.test(this.cinnThemeSettings ? this.cinnThemeSettings.get_string("name")
-                                                         : new Gio.Settings({ schema_id: "org.cinnamon.theme" }).get_string("name"));
-        GLASS = glassPalette(light);
-        if (this._glass && this._glass.active)
-            this.menu.box.style = GLASS.sheet + " border-radius: 20px; padding: 10px 6px;";
-        for (let t of [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile, this.phoneTile])
-            if (t) t._style();
-        if (this.mediaCard)
-            this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 10px; spacing: 12px;";
-        for (let b of this._footerBtns || []) this._styleFooterBtn(b);
+        if (!this._glass) return;
+        GLASS = Glass.palette(this._glass.light);
+        for (let t of this.tiles) t._style();
+        this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 10px; spacing: 12px;";
+        for (let b of this._footerBtns) this._styleFooterBtn(b);
     }
 
     // ---------- Now Playing (MPRIS) ----------
@@ -398,7 +374,7 @@ class ControlCenter extends Applet.TextIconApplet {
         this.phoneTile.actor.hide();
 
         let grid = new St.BoxLayout({ vertical: true, style: "spacing: 8px; padding: 4px 0;", x_expand: true });
-        let tiles = [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile, this.phoneTile];
+        let tiles = this.tiles = [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile, this.phoneTile];
         for (let i = 0; i < tiles.length; i += 2) {
             let row = new St.BoxLayout({ vertical: false, style: "spacing: 8px;", x_expand: true });
             row.add_child(tiles[i].actor);
@@ -411,10 +387,6 @@ class ControlCenter extends Applet.TextIconApplet {
     }
 
     // ---------- Phone (KDE Connect) ----------
-    _kdeconnect() {
-        return GLib.find_program_in_path("kdeconnect-cli");
-    }
-
     // Paired phones that are reachable right now, with battery level
     _phones(callback) {
         run(["kdeconnect-cli", "--list-available", "--id-name-only"], (ok, out) => {
@@ -438,7 +410,7 @@ class ControlCenter extends Applet.TextIconApplet {
     }
 
     _refreshPhone() {
-        let installed = !!this._kdeconnect();
+        let installed = !!GLib.find_program_in_path("kdeconnect-cli");
         this.phoneTile.actor.visible = installed;
         this.phoneMenu.actor.visible = installed;
         if (!installed) return;
@@ -590,7 +562,7 @@ class ControlCenter extends Applet.TextIconApplet {
     }
 
     // ---------- sliders ----------
-    _makeSlider(iconName, label) {
+    _makeSlider(iconName) {
         let slider = new PopupMenu.PopupSliderMenuItem(0);
         // 30px wide, like the tile icon circles, so icons share one column
         let btn = new St.Button({ reactive: true, style: "padding: 0 0 0 10px; width: 30px;" });
@@ -598,7 +570,7 @@ class ControlCenter extends Applet.TextIconApplet {
         btn.set_child(icon);
         slider.removeActor(slider._slider);
         slider.pct = new St.Label({ text: "", style: "min-width: 3.4em; text-align: right; font-size: 9pt;",
-                                    y_align: imports.gi.Clutter.ActorAlign.CENTER });
+                                    y_align: Clutter.ActorAlign.CENTER });
         let box = new St.BoxLayout({ vertical: false, x_expand: true, style: "spacing: 10px;" });
         slider._slider.x_expand = true;
         box.add_child(btn);
@@ -613,142 +585,94 @@ class ControlCenter extends Applet.TextIconApplet {
     _buildSliders() {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Display brightness via cinnamon-settings-daemon
-        this.bright = this._makeSlider("display-brightness-symbolic");
-        this.bright.actor.hide();
-        this.menu.addMenuItem(this.bright);
-        Interfaces.getDBusProxyAsync("org.cinnamon.SettingsDaemon.Power.Screen", (proxy, error) => {
-            if (error) return;
-            this.brightProxy = proxy;
-            proxy.GetPercentageRemote((b, err) => {
-                if (err) return;
-                this.bright.actor.show();
-                this._setBrightUi(b);
-            });
-            proxy.connectSignal("Changed", () => { if (!this.brightDragging) this._refreshBright(); });
-        });
-        this.bright.connect("drag-begin", () => this.brightDragging = true);
-        this.bright.connect("drag-end", () => this.brightDragging = false);
-        this.bright.connect("value-changed", (s, v) => {
-            let pct = Math.max(1, Math.round(v * 100));
-            this.bright.pct.text = pct + "%";
-            if (this.brightProxy) this.brightProxy.SetPercentageRemote(pct, () => {});
-        });
+        // Display brightness via cinnamon-settings-daemon (never all the way to black)
+        this.bright = this._percentSlider("display-brightness-symbolic", "org.cinnamon.SettingsDaemon.Power.Screen", 1);
 
-        // Output volume via the PulseAudio/PipeWire mixer
-        this.vol = this._makeSlider("audio-volume-high-symbolic");
-        this.menu.addMenuItem(this.vol);
-        this.vol.button.connect("clicked", () => { if (this._sink) this._sink.change_is_muted(!this._sink.is_muted); });
-        this.vol.connect("value-changed", (s, v) => {
-            if (!this._sink) return;
-            this._sink.volume = v * this._mixer.get_vol_max_norm();
-            this._sink.push_volume();
-            if (this._sink.is_muted && v > 0) this._sink.change_is_muted(false);
-            this._setVolUi();
-        });
-
-        // Microphone: the icon is the mute button, the slider sets input level
-        this.mic = this._makeSlider("audio-input-microphone-symbolic");
-        this.mic.actor.hide();
-        this.menu.addMenuItem(this.mic);
-        this.mic.button.connect("clicked", () => { if (this._source) this._source.change_is_muted(!this._source.is_muted); });
-        this.mic.connect("value-changed", (s, v) => {
-            if (!this._source) return;
-            this._source.volume = v * this._mixer.get_vol_max_norm();
-            this._source.push_volume();
-            if (this._source.is_muted && v > 0) this._source.change_is_muted(false);
-            this._setMicUi();
-        });
+        // Output volume and microphone via the PulseAudio/PipeWire mixer:
+        // the icon is the mute button, the slider sets the level
+        this.vol = this._streamSlider("audio-volume-high-symbolic", (v, muted) => muted || v === 0 ? "audio-volume-muted-symbolic" :
+            v < 0.34 ? "audio-volume-low-symbolic" : v < 0.67 ? "audio-volume-medium-symbolic" : "audio-volume-high-symbolic");
+        this.mic = this._streamSlider("audio-input-microphone-symbolic", (v, muted) =>
+            muted ? "microphone-sensitivity-muted-symbolic" : "audio-input-microphone-symbolic");
 
         // Keyboard backlight; stays hidden on laptops without one
-        this.kbd = this._makeSlider("keyboard-brightness-symbolic");
-        this.kbd.actor.hide();
-        this.menu.addMenuItem(this.kbd);
-        Interfaces.getDBusProxyAsync("org.cinnamon.SettingsDaemon.Power.Keyboard", (proxy, error) => {
-            if (error) return;
-            proxy.GetPercentageRemote((b, err) => {
-                if (err) return;   // "Keyboard backlight control is not supported"
-                this.kbdProxy = proxy;
-                this.kbd.actor.show();
-                this._setKbdUi(b);
-            });
-            proxy.connectSignal("Changed", () => { if (!this.kbdDragging) this._refreshKbd(); });
-        });
-        this.kbd.connect("drag-begin", () => this.kbdDragging = true);
-        this.kbd.connect("drag-end", () => this.kbdDragging = false);
-        this.kbd.connect("value-changed", (s, v) => {
-            let pct = Math.round(v * 100);
-            this.kbd.pct.text = pct + "%";
-            if (this.kbdProxy) this.kbdProxy.SetPercentageRemote(pct, () => {});
-        });
+        this.kbd = this._percentSlider("keyboard-brightness-symbolic", "org.cinnamon.SettingsDaemon.Power.Keyboard", 0);
 
         this._mixer = new Cvc.MixerControl({ name: "Control Center" });
+        let bindSink = () => this._bindStream(this.vol, this._mixer.get_default_sink());
+        let bindSource = () => this._bindStream(this.mic, this._mixer.get_default_source());
         this._mixer.connect("state-changed", () => {
-            if (this._mixer.get_state() === Cvc.MixerControlState.READY) { this._bindSink(); this._bindSource(); }
+            if (this._mixer.get_state() === Cvc.MixerControlState.READY) { bindSink(); bindSource(); }
         });
-        this._mixer.connect("default-sink-changed", () => this._bindSink());
-        this._mixer.connect("default-source-changed", () => this._bindSource());
+        this._mixer.connect("default-sink-changed", bindSink);
+        this._mixer.connect("default-source-changed", bindSource);
         this._mixer.open();
     }
 
-    _bindSink() {
-        if (this._sink && this._sinkIds) for (let id of this._sinkIds) this._sink.disconnect(id);
-        this._sink = this._mixer.get_default_sink();
-        if (!this._sink) return;
-        this._sinkIds = [
-            this._sink.connect("notify::volume", () => this._setVolUi(true)),
-            this._sink.connect("notify::is-muted", () => this._setVolUi(true)),
-        ];
-        this._setVolUi(true);
+    // A slider for a settings-daemon "percentage" interface (screen or keyboard
+    // backlight). Hidden until the interface answers, so it never shows on
+    // hardware that doesn't support it.
+    _percentSlider(iconName, iface, min) {
+        let slider = this._makeSlider(iconName);
+        slider.actor.hide();
+        this.menu.addMenuItem(slider);
+        let show = b => { slider.setValue(b / 100); slider.pct.text = b + "%"; };
+        slider.refresh = () => {
+            if (slider.proxy) slider.proxy.GetPercentageRemote((b, err) => { if (!err) show(b); });
+        };
+        Interfaces.getDBusProxyAsync(iface, (proxy, error) => {
+            if (error) return;
+            proxy.GetPercentageRemote((b, err) => {
+                if (err) return;   // e.g. "Keyboard backlight control is not supported"
+                slider.proxy = proxy;
+                slider.actor.show();
+                show(b);
+            });
+            proxy.connectSignal("Changed", () => { if (!slider.dragging) slider.refresh(); });
+        });
+        slider.connect("drag-begin", () => slider.dragging = true);
+        slider.connect("drag-end", () => slider.dragging = false);
+        slider.connect("value-changed", (s, v) => {
+            let pct = Math.max(min, Math.round(v * 100));
+            slider.pct.text = pct + "%";
+            if (slider.proxy) slider.proxy.SetPercentageRemote(pct, () => {});
+        });
+        return slider;
     }
 
-    _bindSource() {
-        if (this._source && this._sourceIds) for (let id of this._sourceIds) this._source.disconnect(id);
-        this._source = this._mixer.get_default_source();
-        if (!this._source) { this.mic.actor.hide(); return; }
-        this.mic.actor.show();
-        this._sourceIds = [
-            this._source.connect("notify::volume", () => this._setMicUi(true)),
-            this._source.connect("notify::is-muted", () => this._setMicUi(true)),
-        ];
-        this._setMicUi(true);
+    // A mixer slider; _bindStream attaches it to the default output or input
+    _streamSlider(iconName, iconFor) {
+        let slider = this._makeSlider(iconName);
+        slider.actor.hide();
+        slider.iconFor = iconFor;
+        this.menu.addMenuItem(slider);
+        slider.button.connect("clicked", () => { if (slider.stream) slider.stream.change_is_muted(!slider.stream.is_muted); });
+        slider.connect("value-changed", (s, v) => {
+            let stream = slider.stream;
+            if (!stream) return;
+            stream.volume = v * this._mixer.get_vol_max_norm();
+            stream.push_volume();
+            if (stream.is_muted && v > 0) stream.change_is_muted(false);
+            this._showStream(slider);
+        });
+        return slider;
     }
 
-    _setMicUi(moveSlider) {
-        if (!this._source) return;
-        let v = this._source.volume / this._mixer.get_vol_max_norm();
-        let muted = this._source.is_muted;
-        if (moveSlider) this.mic.setValue(Math.min(1, v));
-        this.mic.pct.text = muted ? "muted" : Math.round(v * 100) + "%";
-        this.mic.icon.icon_name = muted ? "microphone-sensitivity-muted-symbolic" : "audio-input-microphone-symbolic";
+    _bindStream(slider, stream) {
+        if (slider.stream) for (let id of slider.streamIds) slider.stream.disconnect(id);
+        slider.stream = stream;
+        slider.actor.visible = !!stream;
+        if (!stream) return;
+        slider.streamIds = ["notify::volume", "notify::is-muted"].map(sig => stream.connect(sig, () => this._showStream(slider, true)));
+        this._showStream(slider, true);
     }
 
-    _refreshKbd() {
-        if (this.kbdProxy) this.kbdProxy.GetPercentageRemote((b, err) => { if (!err) this._setKbdUi(b); });
-    }
-
-    _setKbdUi(b) {
-        this.kbd.setValue(b / 100);
-        this.kbd.pct.text = b + "%";
-    }
-
-    _setVolUi(moveSlider) {
-        if (!this._sink) return;
-        let v = this._sink.volume / this._mixer.get_vol_max_norm();
-        let muted = this._sink.is_muted;
-        if (moveSlider) this.vol.setValue(Math.min(1, v));
-        this.vol.pct.text = muted ? "muted" : Math.round(v * 100) + "%";
-        this.vol.icon.icon_name = muted || v === 0 ? "audio-volume-muted-symbolic" :
-            v < 0.34 ? "audio-volume-low-symbolic" : v < 0.67 ? "audio-volume-medium-symbolic" : "audio-volume-high-symbolic";
-    }
-
-    _refreshBright() {
-        if (this.brightProxy) this.brightProxy.GetPercentageRemote((b, err) => { if (!err) this._setBrightUi(b); });
-    }
-
-    _setBrightUi(b) {
-        this.bright.setValue(b / 100);
-        this.bright.pct.text = b + "%";
+    _showStream(slider, moveSlider) {
+        let v = slider.stream.volume / this._mixer.get_vol_max_norm();
+        let muted = slider.stream.is_muted;
+        if (moveSlider) slider.setValue(Math.min(1, v));
+        slider.pct.text = muted ? "muted" : Math.round(v * 100) + "%";
+        slider.icon.icon_name = slider.iconFor(v, muted);
     }
 
     // ---------- network / bluetooth lists ----------
@@ -1005,33 +929,32 @@ class ControlCenter extends Applet.TextIconApplet {
         return { cap: Number(read("capacity")), status: read("status") };
     }
 
-    // "99%" beside the icon; a bolt while charging, red when low
+    // "99%" beside the icon; a bolt while charging, red when low. Returns the reading.
     _updatePanelBattery() {
         let b = this._readBattery();
         if (this._alertDot) this._alertDot.visible = !!this._alertCount;
-        if (!b) { this.hide_applet_label(true); return; }
+        if (!b) { this.hide_applet_label(true); return null; }
         this.hide_applet_label(false);
         let charging = b.status === "Charging";
         let text = (charging ? "⚡" : "") + b.cap + "%";
         this.set_applet_label(text);
-        this._applet_label.style = !charging && b.cap <= 20 ? "color: #ff5f57;" : "";
+        this._applet_label.style = !charging && b.cap <= 20 ? "color: #ff5f57;" : null;
 
         this.set_applet_tooltip(`Control Center\nBattery ${b.cap}% — ${b.status}`);
+        return b;
     }
 
     _refreshBattery() {
-        this._updatePanelBattery();
-        let base = ["BAT0", "BAT1", "BAT2"].map(b => "/sys/class/power_supply/" + b).find(p => GLib.file_test(p + "/capacity", GLib.FileTest.EXISTS));
-        if (!base) { this.batteryItem.actor.hide(); return; }
-        let read = f => { try { return new TextDecoder().decode(GLib.file_get_contents(base + "/" + f)[1]).trim(); } catch (e) { return ""; } };
-        let cap = Number(read("capacity")), status = read("status");
-        this.batteryItem.label.text = `Battery ${cap}% — ${status}`;
+        let b = this._updatePanelBattery();
+        if (!b) { this.batteryItem.actor.hide(); return; }
+        this.batteryItem.label.text = `Battery ${b.cap}% — ${b.status}`;
     }
 
     // ---------- footer ----------
     _buildFooter() {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         let row = new St.BoxLayout({ vertical: false, style: "spacing: 6px;", x_expand: true });
+        this._footerBtns = [];
         let buttons = [
             ["preferences-system-symbolic", "Settings", "cinnamon-settings"],
             ["system-lock-screen-symbolic", "Lock", "cinnamon-screensaver-command --lock"],
@@ -1042,7 +965,6 @@ class ControlCenter extends Applet.TextIconApplet {
         for (let [icon, tip, cmd] of buttons) {
             let b = new St.Button({ reactive: true, track_hover: true, x_expand: true });
             b.set_child(new St.Icon({ icon_name: icon, icon_type: St.IconType.SYMBOLIC, icon_size: 16 }));
-            this._footerBtns = this._footerBtns || [];
             this._footerBtns.push(b);
             b.connect("notify::hover", () => this._styleFooterBtn(b));
             this._addTipAbove(b, tip);
@@ -1083,8 +1005,8 @@ class ControlCenter extends Applet.TextIconApplet {
         this._refreshDnd();
         this._refreshDark();
         this._refreshPower();
-        this._refreshBright();
-        this._refreshKbd();
+        this.bright.refresh();
+        this.kbd.refresh();
         this._refreshBattery();
         this._refreshWifiList(true);
         this._refreshBtList();

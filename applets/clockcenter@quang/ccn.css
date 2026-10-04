@@ -178,14 +178,6 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* Glass sheet (only when the frosted backdrop is active) */
-.ccn.ccn-glass {
-  background-color: transparent;
-  border: none;
-  border-radius: 20px;
-  padding: 10px 0;
-}
-
 /* ---------- Light glass (Mint-Y light theme; text is dark from the theme) ---------- */
 .ccn-light .ccn-card,
 .ccn-light .ccn-calendar-card {

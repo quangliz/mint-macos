@@ -157,6 +157,7 @@ clipboard sync, **Send files…**, **Ring phone** and **Browse phone files**.
 ```
 install.sh / uninstall.sh
 applets/        Cinnamon applets (copied to ~/.local/share/cinnamon/applets)
+  shared/       glass.js, linked into the applets that use it
 plank/          Dock theme
 ulauncher/      Search theme and the clipboard-history extension
 bin/            Clipboard recorder, screenshot tool (snip), shortcut helper
