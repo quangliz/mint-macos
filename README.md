@@ -39,6 +39,15 @@ Cinnamon afterwards with **Ctrl+Alt+Esc**.
 |---|---|
 | Mint menu, then the active app's name in bold (click: Hide / Close / Quit) | CPU · RAM · CPU temperature · GPU, the tray, the Control Center with battery %, and the clock |
 
+### Liquid glass
+The Control Center and the clock panel are frosted glass: a live, blurred view
+of the windows and wallpaper behind them, with glossy panes on top. Cinnamon has
+no built-in backdrop blur, so `glass.js` does it with a two-pass GLSL Gaussian
+blur over clones of the windows, created only while a panel is open. If the
+shader can't run, the panels fall back to the normal theme background.
+The glass is dark or light to match the Cinnamon theme, and switches live
+when you flip the Dark Mode tile.
+
 ### Control Center (the two-switches icon)
 - Tiles: Wi-Fi, Bluetooth, Night Light, Do Not Disturb, Dark Mode, Power Mode
 - Now Playing card for any MPRIS player (Spotify, browsers, VLC…) with album art and controls

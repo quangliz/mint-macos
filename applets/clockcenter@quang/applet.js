@@ -17,6 +17,7 @@ const MessageTray = imports.ui.messageTray;
 const Urgency = imports.ui.messageTray.Urgency;
 const NotificationDestroyedReason = imports.ui.messageTray.NotificationDestroyedReason;
 const UUID = "clockcenter@quang";
+const Glass = require('./glass');
 
 const DAY_FORMAT = CinnamonDesktop.WallClock.lctime_format("cinnamon", "%A");
 const DATE_FORMAT_SHORT = CinnamonDesktop.WallClock.lctime_format("cinnamon", _("%B %-e, %Y"));
@@ -260,6 +261,17 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this.notifications = [];
         // Scope our stylesheet to this popup only
         this.menu.box.add_style_class_name("ccn");
+        // Frosted glass sheet behind the content (ccn-glass styles the sheet itself)
+        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6 });
+        if (this._glass.active) this.menu.box.add_style_class_name("ccn-glass");
+        // Light glass when the Cinnamon theme is light (the Dark Mode tile switches it)
+        this._themeSettings = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
+        let applyMode = () => {
+            if (/dark/i.test(this._themeSettings.get_string("name"))) this.menu.box.remove_style_class_name("ccn-light");
+            else this.menu.box.add_style_class_name("ccn-light");
+        };
+        this._themeId = this._themeSettings.connect("changed::name", applyMode);
+        applyMode();
         this._loadStylesheet();
 
         let section = new St.BoxLayout({ vertical: true, style_class: "ccn-section" });
@@ -579,6 +591,8 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         Main.keybindingManager.removeXletHotKey(this, "notification-open");
         Main.keybindingManager.removeXletHotKey(this, "notification-clear");
         this._unloadStylesheet();
+        if (this._glass) this._glass.destroy();
+        if (this._themeId) this._themeSettings.disconnect(this._themeId);
         MessageTray.extensionsHandlingNotifications--;
         if (MessageTray.extensionsHandlingNotifications === 0) this._clearNotifications();
         if (this.clock_notify_id > 0) {

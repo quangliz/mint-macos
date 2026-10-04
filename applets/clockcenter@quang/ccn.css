@@ -36,10 +36,15 @@
 .ccn-card {
   padding: 10px 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-gradient-direction: vertical;
+  background-gradient-start: rgba(255, 255, 255, 0.15);
+  background-gradient-end: rgba(255, 255, 255, 0.06);
 }
-.ccn-card:hover { background-color: rgba(255, 255, 255, 0.11); }
+.ccn-card:hover {
+  background-gradient-start: rgba(255, 255, 255, 0.22);
+  background-gradient-end: rgba(255, 255, 255, 0.12);
+}
 
 .ccn-card-row { spacing: 10px; }
 .ccn-card-icon { width: 32px; height: 32px; }
@@ -74,8 +79,10 @@
 .ccn-calendar-card {
   padding: 10px 12px 12px 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-gradient-direction: vertical;
+  background-gradient-start: rgba(255, 255, 255, 0.15);
+  background-gradient-end: rgba(255, 255, 255, 0.06);
 }
 
 .ccn-cal-header { padding: 0 2px 4px 2px; spacing: 4px; }
@@ -170,3 +177,47 @@
   font-size: 0.9em;
   color: rgba(255, 255, 255, 0.6);
 }
+
+/* Glass sheet (only when the frosted backdrop is active) */
+.ccn.ccn-glass {
+  background-color: rgba(26, 26, 32, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  padding: 10px 0;
+}
+
+/* ---------- Light glass (Mint-Y light theme; text is dark from the theme) ---------- */
+.ccn.ccn-glass.ccn-light {
+  background-color: rgba(244, 244, 248, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.70);
+}
+.ccn-light .ccn-card,
+.ccn-light .ccn-calendar-card {
+  background-gradient-start: rgba(255, 255, 255, 0.72);
+  background-gradient-end: rgba(255, 255, 255, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.80);
+}
+.ccn-light .ccn-card:hover {
+  background-gradient-start: rgba(255, 255, 255, 0.88);
+  background-gradient-end: rgba(255, 255, 255, 0.68);
+}
+.ccn-light .ccn-pill { color: rgba(0, 0, 0, 0.75); background-color: rgba(0, 0, 0, 0.06); }
+.ccn-light .ccn-pill:hover { background-color: rgba(0, 0, 0, 0.12); }
+.ccn-light .ccn-empty,
+.ccn-light .ccn-day-empty { color: rgba(0, 0, 0, 0.45); }
+.ccn-light .ccn-card-app { color: rgba(0, 0, 0, 0.55); }
+.ccn-light .ccn-card-time { color: rgba(0, 0, 0, 0.45); }
+.ccn-light .ccn-card-body { color: rgba(0, 0, 0, 0.75); }
+.ccn-light .ccn-card-close { background-color: rgba(0, 0, 0, 0.10); }
+.ccn-light .ccn-card-icon-symbolic { background-color: rgba(0, 0, 0, 0.08); }
+.ccn-light .ccn-cal-nav:hover,
+.ccn-light .ccn-event-row:hover { background-color: rgba(0, 0, 0, 0.07); }
+.ccn-light .ccn-day-sep { background-color: rgba(0, 0, 0, 0.10); }
+.ccn-light .ccn-event-time { color: rgba(0, 0, 0, 0.55); }
+.ccn.ccn-light .calendar-day-base:hover { color: #000000; background-color: rgba(0, 0, 0, 0.08); }
+.ccn.ccn-light .calendar-nonwork-day { color: rgba(0, 0, 0, 0.55); }
+.ccn.ccn-light .calendar-day-heading { color: rgba(0, 0, 0, 0.45); }
+.ccn.ccn-light .calendar-not-today:selected { background-color: rgba(0, 0, 0, 0.10); }
+.ccn.ccn-light .calendar-other-month-day { color: rgba(0, 0, 0, 0.25); }
+.ccn.ccn-light .calendar-today,
+.ccn.ccn-light .calendar-today:hover { color: #ffffff; }

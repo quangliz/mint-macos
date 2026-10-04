@@ -44,7 +44,24 @@ const MprisAppProxy = Gio.DBusProxy.makeProxyWrapper(`<node>
   </interface>
 </node>`);
 
-const ACCENT = "#1f9ede";  // Mint-Y-Aqua accent, shared with the theme sliders and the clock panel
+const ACCENT = "#1f9ede";
+
+// Glass colours for dark and light themes. Text colour comes from the
+// Cinnamon theme itself (light text on Mint-Y-Dark, dark text on Mint-Y).
+function glassPalette(light) {
+    const sheen = (top, bottom) => "background-gradient-direction: vertical;" +
+        ` background-gradient-start: rgba(255,255,255,${top}); background-gradient-end: rgba(255,255,255,${bottom});`;
+    return light ? {
+        sheet: "background-color: rgba(244,244,248,0.52); border: 1px solid rgba(255,255,255,0.70);",
+        pane: hover => sheen(hover ? 0.88 : 0.72, hover ? 0.68 : 0.48) + " border: 1px solid rgba(255,255,255,0.80);",
+        circle: "background-color: rgba(0,0,0,0.08);",
+    } : {
+        sheet: "background-color: rgba(26,26,32,0.38); border: 1px solid rgba(255,255,255,0.16);",
+        pane: hover => sheen(hover ? 0.22 : 0.15, hover ? 0.12 : 0.06) + " border: 1px solid rgba(255,255,255,0.12);",
+        circle: "background-color: rgba(255,255,255,0.14);",
+    };
+}
+let GLASS = glassPalette(false);  // Mint-Y-Aqua accent, shared with the theme sliders and the clock panel
 
 // Run a command asynchronously; callback(ok, stdout)
 function run(argv, callback) {
@@ -115,10 +132,10 @@ class Tile {
     }
 
     _style() {
-        let bg = this.actor.hover ? "rgba(255,255,255,0.17)" : "rgba(255,255,255,0.10)";
-        this.actor.style = `background-color: ${bg}; border: 1px solid rgba(255,255,255,0.10); border-radius: 16px; padding: 8px 10px; width: 150px;`;
+        // glass pane: soft sheen, brighter at the top like light on glass
+        this.actor.style = GLASS.pane(this.actor.hover) + " border-radius: 16px; padding: 8px 10px; width: 150px;";
         this.iconBin.style = "border-radius: 99px; padding: 7px; " +
-            (this.active ? `background-color: ${ACCENT}; color: white;` : "background-color: rgba(255,255,255,0.14);");
+            (this.active ? `background-color: ${ACCENT}; color: white;` : GLASS.circle);
     }
 }
 
@@ -146,10 +163,10 @@ class ControlCenter extends Applet.TextIconApplet {
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
         // Frosted glass sheet behind the content; falls back to the theme if unavailable
-        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20 });
-        if (this._glass.active)
-            this.menu.box.style = "background-color: rgba(26,26,32,0.38); border: 1px solid rgba(255,255,255,0.14);" +
-                                  " border-radius: 20px; padding: 10px 6px;";
+        this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6 });
+        // Light or dark glass follows the Cinnamon theme (the Dark Mode tile switches it)
+        this._glassThemeSettings = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
+        this._glassThemeId = this._glassThemeSettings.connect("changed::name", () => this._applyGlassTheme());
 
         this.nightSettings = new Gio.Settings({ schema_id: "org.cinnamon.settings-daemon.plugins.color" });
         this.notifSettings = new Gio.Settings({ schema_id: "org.cinnamon.desktop.notifications" });
@@ -164,6 +181,7 @@ class ControlCenter extends Applet.TextIconApplet {
         this._buildSliders();
         this._buildLists();
         this._buildFooter();
+        this._applyGlassTheme();
 
         this.signals = [
             [this.nightSettings, this.nightSettings.connect("changed::night-light-enabled", () => this._refreshNight())],
@@ -181,6 +199,7 @@ class ControlCenter extends Applet.TextIconApplet {
 
     on_applet_removed_from_panel() {
         if (this._glass) this._glass.destroy();
+        if (this._glassThemeId) this._glassThemeSettings.disconnect(this._glassThemeId);
         imports.ui.main.systrayManager.unregisterTrayIconReplacement(this.uuid);
         if (this._batteryTimer) Mainloop.source_remove(this._batteryTimer);
         if (this._upower && this._upowerId) this._upower.disconnect(this._upowerId);
@@ -195,12 +214,28 @@ class ControlCenter extends Applet.TextIconApplet {
         for (let name of Array.from(this.players.keys())) this._removePlayer(name);
     }
 
+    _styleFooterBtn(b) {
+        b.style = "border-radius: 99px; padding: 8px; " + GLASS.pane(b.hover);
+    }
+
+    _applyGlassTheme() {
+        let light = !/dark/i.test(this.cinnThemeSettings ? this.cinnThemeSettings.get_string("name")
+                                                         : new Gio.Settings({ schema_id: "org.cinnamon.theme" }).get_string("name"));
+        GLASS = glassPalette(light);
+        if (this._glass && this._glass.active)
+            this.menu.box.style = GLASS.sheet + " border-radius: 20px; padding: 10px 6px;";
+        for (let t of [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile])
+            if (t) t._style();
+        if (this.mediaCard)
+            this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 10px; spacing: 12px;";
+        for (let b of this._footerBtns || []) this._styleFooterBtn(b);
+    }
+
     // ---------- Now Playing (MPRIS) ----------
     _buildMedia() {
         this.players = new Map();   // bus name -> { player, app, lastActive, propId }
 
-        let card = new St.BoxLayout({ vertical: false, x_expand: true,
-            style: "background-color: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px; padding: 10px; spacing: 12px;" });
+        let card = this.mediaCard = new St.BoxLayout({ vertical: false, x_expand: true });
         this.mediaArt = new St.Bin({ style: "width: 52px; height: 52px; border-radius: 8px; background-color: rgba(128,128,128,0.3);" });
         card.add_child(this.mediaArt);
 
@@ -904,11 +939,11 @@ class ControlCenter extends Applet.TextIconApplet {
             ["system-shutdown-symbolic", "Power off", "cinnamon-session-quit --power-off"],
         ];
         for (let [icon, tip, cmd] of buttons) {
-            let b = new St.Button({ reactive: true, track_hover: true, x_expand: true,
-                style: "border-radius: 99px; padding: 8px; background-color: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.10);" });
+            let b = new St.Button({ reactive: true, track_hover: true, x_expand: true });
             b.set_child(new St.Icon({ icon_name: icon, icon_type: St.IconType.SYMBOLIC, icon_size: 16 }));
-            b.connect("notify::hover", () => b.style = "border-radius: 99px; padding: 8px; background-color: " +
-                (b.hover ? "rgba(255,255,255,0.20); border: 1px solid rgba(255,255,255,0.10);" : "rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.10);"));
+            this._footerBtns = this._footerBtns || [];
+            this._footerBtns.push(b);
+            b.connect("notify::hover", () => this._styleFooterBtn(b));
             this._addTipAbove(b, tip);
             b.connect("clicked", () => { this.menu.close(); Util.spawnCommandLine(cmd); });
             row.add_child(b);
