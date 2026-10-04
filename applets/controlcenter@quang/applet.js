@@ -48,15 +48,17 @@ const ACCENT = "#1f9ede";
 
 // Glass colours for dark and light themes. Text colour comes from the
 // Cinnamon theme itself (light text on Mint-Y-Dark, dark text on Mint-Y).
+// The sheet itself is just the blur, no tint or border, like the clock panel
+const SHEET = "background-color: transparent; border: none;";
 function glassPalette(light) {
     const sheen = (top, bottom) => "background-gradient-direction: vertical;" +
         ` background-gradient-start: rgba(255,255,255,${top}); background-gradient-end: rgba(255,255,255,${bottom});`;
     return light ? {
-        sheet: "background-color: rgba(244,244,248,0.52); border: 1px solid rgba(255,255,255,0.70);",
+        sheet: SHEET,
         pane: hover => sheen(hover ? 0.88 : 0.72, hover ? 0.68 : 0.48) + " border: 1px solid rgba(255,255,255,0.80);",
         circle: "background-color: rgba(0,0,0,0.08);",
     } : {
-        sheet: "background-color: rgba(26,26,32,0.38); border: 1px solid rgba(255,255,255,0.16);",
+        sheet: SHEET,
         pane: hover => sheen(hover ? 0.22 : 0.15, hover ? 0.12 : 0.06) + " border: 1px solid rgba(255,255,255,0.12);",
         circle: "background-color: rgba(255,255,255,0.14);",
     };

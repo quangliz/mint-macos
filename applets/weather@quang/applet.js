@@ -42,14 +42,16 @@ function label(text, style, dim) {
 }
 
 // Same glass panes as the Control Center
+// The sheet itself is just the blur, no tint or border, like the clock panel
+const SHEET = "background-color: transparent; border: none;";
 function glassPalette(light) {
     const sheen = (t, b) => "background-gradient-direction: vertical;" +
         ` background-gradient-start: rgba(255,255,255,${t}); background-gradient-end: rgba(255,255,255,${b});`;
     return light ? {
-        sheet: "background-color: rgba(244,244,248,0.52); border: 1px solid rgba(255,255,255,0.70);",
+        sheet: SHEET,
         pane: sheen(0.72, 0.48) + " border: 1px solid rgba(255,255,255,0.80);",
     } : {
-        sheet: "background-color: rgba(26,26,32,0.38); border: 1px solid rgba(255,255,255,0.16);",
+        sheet: SHEET,
         pane: sheen(0.15, 0.06) + " border: 1px solid rgba(255,255,255,0.12);",
     };
 }
