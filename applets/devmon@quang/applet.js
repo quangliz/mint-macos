@@ -5,6 +5,7 @@ const Util = imports.misc.util;
 const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
 const Mainloop = imports.mainloop;
+const Main = imports.ui.main;
 
 function readFile(path) {
     try {
@@ -56,6 +57,10 @@ class DeviceMonitor extends Applet.TextIconApplet {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction("Open System Monitor", () => Util.spawnCommandLine("gnome-system-monitor"));
         this.primeItem = this.menu.addAction("Switch GPU mode…", () => Util.spawnCommandLine("nvidia-settings --page=\"PRIME Profiles\""));
+        // With mint-macos/gpu installed: turn the GPU on for CUDA, fully off otherwise
+        this.gpuToggle = this.menu.addAction("", () => this._toggleGpu());
+        this.gpuToggle.actor.hide();
+        this.menu.connect("open-state-changed", (m, open) => { if (open) this._updateGpuToggle(); });
 
         this.prevCpu = null;
         this.prevNet = null;
@@ -85,6 +90,39 @@ class DeviceMonitor extends Applet.TextIconApplet {
 
     _isVertical() {
         return this.orientation === imports.gi.St.Side.LEFT || this.orientation === imports.gi.St.Side.RIGHT;
+    }
+
+    _hasGpuCmd() {
+        return GLib.file_test("/usr/local/bin/gpu", GLib.FileTest.IS_EXECUTABLE);
+    }
+
+    _updateGpuToggle() {
+        if (!this._hasGpuCmd()) { this.gpuToggle.actor.hide(); return; }
+        let on = GLib.file_test("/sys/module/nvidia", GLib.FileTest.IS_DIR);
+        this.gpuToggle.label.text = on ? "Turn GPU off (save power)" : "Turn GPU on for CUDA";
+        this.gpuToggle.actor.show();
+        // in GPU-off setups the PRIME switch is not the right tool
+        this.primeItem.actor.hide();
+    }
+
+    // Runs "gpu on|off" as root through the normal password dialog
+    _toggleGpu() {
+        let on = GLib.file_test("/sys/module/nvidia", GLib.FileTest.IS_DIR);
+        try {
+            let proc = Gio.Subprocess.new(["pkexec", "/usr/local/bin/gpu", on ? "off" : "on"],
+                                          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE);
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                let out = "";
+                try { [, out] = p.communicate_utf8_finish(res); } catch (e) {}
+                if (!p.get_successful() && out && !/dismissed|Not authorized/i.test(out))
+                    Main.notify("GPU", out.trim().split("\n").slice(0, 4).join("\n"));
+                this.gpu = null;
+                this._pollGpu();
+                this._updateGpuToggle();
+            });
+        } catch (e) {
+            global.logError("devmon: gpu toggle failed: " + e);
+        }
     }
 
     on_applet_clicked() {
@@ -290,7 +328,8 @@ class DeviceMonitor extends Applet.TextIconApplet {
     _gpuStats() {
         let g = this.gpu;
         if (!g) return "querying…";
-        if (g.state === "no-driver") return "NVIDIA driver not loaded";
+        if (g.state === "no-driver")
+            return this._hasGpuCmd() ? "GPU off: fully powered down\nTurn it on below for CUDA" : "NVIDIA driver not loaded";
         if (g.state === "asleep") return "GPU asleep (not polled, to save power)";
         if (g.state !== "ok") return "nvidia-smi failed";
         let memPct = g.memTotal ? 100 * g.memUsed / g.memTotal : 0;

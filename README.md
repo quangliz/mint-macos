@@ -89,6 +89,25 @@ theme. Right-click an icon → **Keep in Dock** to pin it.
 | Bottom-left corner | Mission Control |
 | Bottom-right corner | Show Desktop |
 
+## Optional: NVIDIA GPU off until you need CUDA
+
+On many NVIDIA laptops (especially with AMD CPUs) the NVIDIA driver can't power
+the GPU off, so it idles at 3–4 W all the time. `gpu/` keeps the driver unloaded
+at boot, which lets Linux cut power to the GPU slot completely, and loads it
+only when you want CUDA (PyTorch, model training, `nvidia-smi`):
+
+```bash
+sudo ./gpu/install.sh      # once, then reboot
+gpu status                 # Driver: not loaded · Power: powered off
+gpu on                     # load the driver for CUDA work
+gpu off                    # unload it; the GPU powers off again
+```
+
+The device monitor menu also has a **Turn GPU on for CUDA / Turn GPU off**
+item. Only the compute parts of the driver are loaded, so running graphical
+apps on the NVIDIA GPU ("Run with NVIDIA") isn't available in this setup.
+Undo with `sudo ./gpu/uninstall.sh` and a reboot.
+
 ## Layout of this repo
 
 ```
@@ -97,6 +116,7 @@ applets/        Cinnamon applets (copied to ~/.local/share/cinnamon/applets)
 plank/          Dock theme
 ulauncher/      Search theme and the clipboard-history extension
 bin/            Clipboard recorder (runs at login)
+gpu/            Optional: NVIDIA GPU off until needed (gpu on/off)
 ```
 
 ## Notes

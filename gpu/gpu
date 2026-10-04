@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# gpu — turn the NVIDIA GPU on for CUDA work, and fully off the rest of the time.
+#
+#   gpu status   show driver and power state
+#   gpu on       load the NVIDIA compute driver (CUDA, PyTorch, nvidia-smi)
+#   gpu off      unload it; the GPU then powers off completely (D3cold)
+#
+# Only the compute parts (nvidia, nvidia_uvm) are loaded, never the display
+# parts, so the desktop never holds the GPU and "gpu off" can always unload it.
+set -euo pipefail
+
+gpu_dev() {
+    for d in /sys/bus/pci/devices/*; do
+        [[ "$(cat "$d/vendor")" == 0x10de && "$(cat "$d/class")" == 0x03* ]] && { echo "$d"; return; }
+    done
+}
+DEV="$(gpu_dev || true)"
+[[ -n "$DEV" ]] || { echo "No NVIDIA GPU found."; exit 1; }
+PORT="$(dirname "$(readlink -f "$DEV")")"
+
+loaded() { [[ -d /sys/module/nvidia ]]; }
+
+power_state() {
+    # The slot's ACPI power resource is off only in a real power cut (D3cold)
+    local res in_use="?"
+    for res in "$PORT"/firmware_node/power_resources_D3hot/*; do
+        [[ -e "$res/resource_in_use" ]] && in_use="$(cat "$res/resource_in_use")"
+    done
+    case "$in_use" in
+        0) echo "powered off" ;;
+        1) echo "powered on" ;;
+        *) echo "$(cat "$DEV/power/runtime_status")" ;;
+    esac
+}
+
+# Name from the PCI ID database. Not lspci: reading the device's config
+# space wakes a powered-off GPU.
+gpu_name() {
+    local dev; dev="$(cat "$DEV/device")"; dev="${dev#0x}"
+    awk -v id="$dev" '/^10de/ {v=1; next} /^[0-9a-f]/ {v=0} v && $1 == id {$1=""; sub(/^ /, ""); print; exit}' \
+        /usr/share/misc/pci.ids 2>/dev/null || true
+}
+
+status() {
+    echo "GPU:    $(gpu_name)"
+    echo "Driver: $(loaded && echo loaded || echo "not loaded")"
+    echo "Power:  $(power_state)"
+}
+
+need_root() { [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"; }
+
+case "${1:-status}" in
+    status) status ;;
+    on)
+        need_root "$@"
+        modprobe nvidia
+        modprobe nvidia_uvm
+        sleep 1
+        status
+        command -v nvidia-smi >/dev/null && nvidia-smi -L || true
+        ;;
+    off)
+        need_root "$@"
+        if loaded; then
+            # programs still using the GPU (NVIDIA's persistence service doesn't count)
+            busy="$(fuser /dev/nvidia* 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u |
+                    while read -r pid; do ps -o pid=,comm= -p "$pid"; done | grep -v nvidia-persiste || true)"
+            if [[ -n "$busy" && "${2:-}" != "--force" ]]; then
+                echo "Still using the GPU — close these first (or: gpu off --force):"
+                echo "$busy" | sed 's/^ */  /'
+                exit 1
+            fi
+            systemctl stop nvidia-persistenced 2>/dev/null || true
+            for m in nvidia_uvm nvidia_drm nvidia_modeset nvidia; do
+                [[ -d /sys/module/$m ]] && modprobe -r "$m"
+            done
+        fi
+        # give runtime PM a moment to power the slot down
+        for _ in $(seq 1 20); do [[ "$(power_state)" == "powered off" ]] && break; sleep 0.5; done
+        status
+        ;;
+    *) sed -n '2,8p' "$0"; exit 1 ;;
+esac
