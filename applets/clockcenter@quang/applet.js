@@ -370,7 +370,8 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         let row = new St.BoxLayout({ vertical: false, x_expand: true, style_class: "ccn-card-row" });
         card.set_child(row);
 
-        let iconBin = new St.Bin({ style_class: "ccn-card-icon", y_align: St.Align.START });
+        // icon centred in its 32px circle; the column below keeps the circle at the top of the card
+        let iconBin = new St.Bin({ style_class: "ccn-card-icon", x_align: St.Align.MIDDLE, y_align: St.Align.MIDDLE });
         let icon = this._cardIcon(n);
         if (icon.icon_type === St.IconType.SYMBOLIC) iconBin.add_style_class_name("ccn-card-icon-symbolic");
         iconBin.set_child(icon);
@@ -581,8 +582,25 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this.events_manager.select_date(this._calendar.getSelectedDate());
     }
 
+    // With Do Not Disturb on (display-notifications off) Cinnamon deletes
+    // new notifications unseen. Like macOS, file them here without a banner.
+    _keepQuietNotifications() {
+        let tray = Main.messageTray;
+        let original = tray._updateState;
+        let self = this;
+        tray._updateState = function () {
+            if (!this._notificationsEnabled)
+                while (this._notificationQueue.length) self._notificationAdded(this._notificationQueue.shift());
+            return original.call(this);
+        };
+        this._restoreTray = () => {
+            if (Object.prototype.hasOwnProperty.call(tray, "_updateState")) delete tray._updateState;
+        };
+    }
+
     on_applet_added_to_panel() {
         MessageTray.extensionsHandlingNotifications++;
+        this._keepQuietNotifications();
         this._onSettingsChanged();
 
         if (this.clock_notify_id == 0) {
@@ -601,6 +619,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         if (this._themeCtxId) St.ThemeContext.get_for_stage(global.stage).disconnect(this._themeCtxId);
         this._unloadStylesheet();
         if (this._glass) this._glass.destroy();
+        if (this._restoreTray) this._restoreTray();
         MessageTray.extensionsHandlingNotifications--;
         if (MessageTray.extensionsHandlingNotifications === 0) this._clearNotifications();
         if (this.clock_notify_id > 0) {
