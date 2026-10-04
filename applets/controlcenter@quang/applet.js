@@ -230,7 +230,7 @@ class ControlCenter extends Applet.TextIconApplet {
         GLASS = glassPalette(light);
         if (this._glass && this._glass.active)
             this.menu.box.style = GLASS.sheet + " border-radius: 20px; padding: 10px 6px;";
-        for (let t of [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile])
+        for (let t of [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile, this.phoneTile])
             if (t) t._style();
         if (this.mediaCard)
             this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 10px; spacing: 12px;";
@@ -392,9 +392,11 @@ class ControlCenter extends Applet.TextIconApplet {
             this.notifSettings.set_boolean("display-notifications", !this.notifSettings.get_boolean("display-notifications")));
         this.darkTile = new Tile("weather-clear-night-symbolic", "Dark Mode", () => this._toggleDark());
         this.powerTile = new Tile("power-profile-balanced-symbolic", "Power Mode", () => this._cyclePower());
+        this.phoneTile = new Tile("phone-symbolic", "Phone", () => this._phoneClicked());
+        this.phoneTile.actor.hide();
 
         let grid = new St.BoxLayout({ vertical: true, style: "spacing: 8px; padding: 4px 0;", x_expand: true });
-        let tiles = [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile];
+        let tiles = [this.wifiTile, this.btTile, this.nightTile, this.dndTile, this.darkTile, this.powerTile, this.phoneTile];
         for (let i = 0; i < tiles.length; i += 2) {
             let row = new St.BoxLayout({ vertical: false, style: "spacing: 8px;", x_expand: true });
             row.add_child(tiles[i].actor);
@@ -404,6 +406,77 @@ class ControlCenter extends Applet.TextIconApplet {
         let item = new PopupMenu.PopupBaseMenuItem({ reactive: false, activate: false, hover: false });
         item.addActor(grid, { span: -1, expand: true });
         this.menu.addMenuItem(item);
+    }
+
+    // ---------- Phone (KDE Connect) ----------
+    _kdeconnect() {
+        return GLib.find_program_in_path("kdeconnect-cli");
+    }
+
+    // Paired phones that are reachable right now, with battery level
+    _phones(callback) {
+        run(["kdeconnect-cli", "--list-available", "--id-name-only"], (ok, out) => {
+            let phones = out.split("\n").filter(l => l.trim()).map(l => {
+                let i = l.indexOf(" ");
+                return { id: l.slice(0, i), name: l.slice(i + 1).trim() };
+            }).filter(p => /^[A-Za-z0-9_]+$/.test(p.id));
+            if (!phones.length) { callback(phones); return; }
+            let left = phones.length;
+            for (let p of phones) {
+                run(["gdbus", "call", "--session", "--dest", "org.kde.kdeconnect",
+                     "--object-path", `/modules/kdeconnect/devices/${p.id}/battery`,
+                     "--method", "org.freedesktop.DBus.Properties.Get", "org.kde.kdeconnect.device.battery", "charge"],
+                    (ok2, out2) => {
+                        let m = out2.match(/<(-?\d+)>/);
+                        p.battery = m && Number(m[1]) >= 0 ? Number(m[1]) : null;
+                        if (--left === 0) callback(phones);
+                    });
+            }
+        });
+    }
+
+    _refreshPhone() {
+        let installed = !!this._kdeconnect();
+        this.phoneTile.actor.visible = installed;
+        this.phoneMenu.actor.visible = installed;
+        if (!installed) return;
+        this._phones(phones => {
+            let p = phones[0];
+            this.phoneTile.set(!!p, p ? `${p.name}${p.battery !== null ? ` · ${p.battery}%` : ""}` : "Not connected");
+            this._fillPhoneList(phones);
+        });
+    }
+
+    // Like Wi-Fi and Bluetooth: the tile opens its list below
+    _phoneClicked() {
+        if (this.phoneMenu.menu.isOpen) this.phoneMenu.menu.close(true);
+        else this.phoneMenu.menu.open(true);
+    }
+
+    _fillPhoneList(phones) {
+        let sub = this.phoneMenu.menu;
+        this._setList(sub, JSON.stringify(phones), () => {
+            if (!phones.length)
+                sub.addMenuItem(new PopupMenu.PopupMenuItem("No phone connected", { reactive: false }));
+            for (let p of phones) {
+                sub.addMenuItem(new PopupMenu.PopupIconMenuItem(
+                    p.name + (p.battery !== null ? `  ·  ${p.battery}%` : ""), "phone-symbolic", St.IconType.SYMBOLIC,
+                    { reactive: false }));
+                let act = (text, fn) => {
+                    let it = new PopupMenu.PopupMenuItem(text);
+                    it.connect("activate", () => { this.menu.close(); fn(); });
+                    sub.addMenuItem(it);
+                };
+                act("Send files…", () => run(["sh", "-c",
+                    `zenity --file-selection --multiple --separator='\n' --title="Send to ${p.name.replace(/[^\w .-]/g, "")}" |` +
+                    ` while IFS= read -r f; do kdeconnect-cli --device ${p.id} --share "$f"; done`]));
+                act("Ring phone", () => run(["kdeconnect-cli", "--device", p.id, "--ring"]));
+                act("Browse phone files", () => run(["gdbus", "call", "--session", "--dest", "org.kde.kdeconnect",
+                    "--object-path", `/modules/kdeconnect/devices/${p.id}/sftp`,
+                    "--method", "org.kde.kdeconnect.device.sftp.startBrowsing"]));
+            }
+            this._addSettingsLink(sub, phones.length ? "KDE Connect settings…" : "Pair a phone…", "kdeconnect-app");
+        });
     }
 
     _refreshWifi() {
@@ -461,7 +534,11 @@ class ControlCenter extends Applet.TextIconApplet {
         this.dndTile.set(dnd, dnd ? "On" : "Off");
     }
 
+    // Theme name for the other mode. Handles Mint-Y ("Mint-Y-Aqua" <-> "Mint-Y-Dark-Aqua")
+    // and themes with Light/Dark variants ("WhiteSur-Light" <-> "WhiteSur-Dark").
     _darkVariant(name, wantDark) {
+        if (!/^Mint-/.test(name) && /-(Light|Dark)(\b|-)/.test(name))
+            return name.replace(/-(Light|Dark)(\b|-)/, (m, v, rest) => (wantDark ? "-Dark" : "-Light") + rest);
         if (wantDark) {
             if (/-Dark/.test(name)) return name;
             let m = name.match(/^(Mint-[A-Z])(-.*)?$/);
@@ -481,6 +558,11 @@ class ControlCenter extends Applet.TextIconApplet {
         let cinn = this._darkVariant(this.cinnThemeSettings.get_string("name"), wantDark);
         if (themeExists(gtk)) this.ifaceSettings.set_string("gtk-theme", gtk);
         if (themeExists(cinn)) this.cinnThemeSettings.set_string("name", cinn);
+        // icon sets with light/dark variants (e.g. WhiteSur-light / WhiteSur-dark)
+        let icons = this.ifaceSettings.get_string("icon-theme");
+        let m = icons.match(/^(.*)-(light|dark)$/i);
+        if (m && iconThemeExists(`${m[1]}-${wantDark ? "dark" : "light"}`))
+            this.ifaceSettings.set_string("icon-theme", `${m[1]}-${wantDark ? "dark" : "light"}`);
         if (this.portalSettings) this.portalSettings.set_string("color-scheme", wantDark ? "prefer-dark" : "default");
         if (this.gnomeIface) try { this.gnomeIface.set_string("color-scheme", wantDark ? "prefer-dark" : "default"); } catch (e) {}
         this._refreshDark();
@@ -534,11 +616,7 @@ class ControlCenter extends Applet.TextIconApplet {
         this.bright.actor.hide();
         this.menu.addMenuItem(this.bright);
         Interfaces.getDBusProxyAsync("org.cinnamon.SettingsDaemon.Power.Screen", (proxy, error) => {
-    // Theme name for the other mode. Handles Mint-Y ("Mint-Y-Aqua" <-> "Mint-Y-Dark-Aqua")
-    // and themes with Light/Dark variants ("WhiteSur-Light" <-> "WhiteSur-Dark").
             if (error) return;
-        if (!/^Mint-/.test(name) && /-(Light|Dark)(\b|-)/.test(name))
-            return name.replace(/-(Light|Dark)(\b|-)/, (m, v, rest) => (wantDark ? "-Dark" : "-Light") + rest);
             this.brightProxy = proxy;
             proxy.GetPercentageRemote((b, err) => {
                 if (err) return;
@@ -558,11 +636,6 @@ class ControlCenter extends Applet.TextIconApplet {
         // Output volume via the PulseAudio/PipeWire mixer
         this.vol = this._makeSlider("audio-volume-high-symbolic");
         this.menu.addMenuItem(this.vol);
-        // icon sets with light/dark variants (e.g. WhiteSur-light / WhiteSur-dark)
-        let icons = this.ifaceSettings.get_string("icon-theme");
-        let m = icons.match(/^(.*)-(light|dark)$/i);
-        if (m && iconThemeExists(`${m[1]}-${wantDark ? "dark" : "light"}`))
-            this.ifaceSettings.set_string("icon-theme", `${m[1]}-${wantDark ? "dark" : "light"}`);
         this.vol.button.connect("clicked", () => { if (this._sink) this._sink.change_is_muted(!this._sink.is_muted); });
         this.vol.connect("value-changed", (s, v) => {
             if (!this._sink) return;
@@ -683,8 +756,12 @@ class ControlCenter extends Applet.TextIconApplet {
         this.menu.addMenuItem(this.wifiMenu);
         this.btMenu = new PopupMenu.PopupSubMenuMenuItem("Bluetooth devices");
         this.menu.addMenuItem(this.btMenu);
-        this._smoothSubmenu(this.wifiMenu, this.btMenu);
-        this._smoothSubmenu(this.btMenu, this.wifiMenu);
+        // Phone (KDE Connect); hidden until KDE Connect is installed
+        this.phoneMenu = new PopupMenu.PopupSubMenuMenuItem("Phone");
+        this.menu.addMenuItem(this.phoneMenu);
+        this.phoneMenu.actor.hide();
+        let sections = () => [this.wifiMenu, this.btMenu, this.phoneMenu];
+        for (let s of sections()) this._smoothSubmenu(s, sections);
 
         // System alerts (updates, system reports) — rows appear only when needed
         this.alertSection = new PopupMenu.PopupMenuSection();
@@ -703,7 +780,7 @@ class ControlCenter extends Applet.TextIconApplet {
 
     // Replace the stock expand/collapse with a gentler ease, and close the
     // sibling section first so only one list is open at a time.
-    _smoothSubmenu(item, sibling) {
+    _smoothSubmenu(item, siblings) {
         let sub = item.menu;
         // The theme paints expanded sections solid; let the glass show through
         sub.actor.style = "background-color: transparent;";
@@ -711,7 +788,7 @@ class ControlCenter extends Applet.TextIconApplet {
         let setArrow = p => { if (sub._arrow) sub._arrow.rotation_angle_z = p * 90; };
         sub.open = (animate) => {
             if (sub.isOpen) return;
-            sibling.menu.close(animate);
+            for (let s of siblings()) if (s !== item) s.menu.close(animate);
             sub.isOpen = true;
             sub.actor.show();
             if (!animate || !animOn()) { setArrow(1); sub.emit("open-state-changed", true); return; }
@@ -1009,6 +1086,7 @@ class ControlCenter extends Applet.TextIconApplet {
         this._refreshBattery();
         this._refreshWifiList(true);
         this._refreshBtList();
+        this._refreshPhone();
     }
 }
 

@@ -62,6 +62,7 @@ name comes from your timezone. Both can be set in the applet's settings.
 - Wi-Fi network list and Bluetooth devices with connect switches
 - Alert rows for pending updates and system reports, with an orange dot on the icon
 - Battery %, plus automatic Power Saver on battery (restores your mode when plugged in)
+- Phone tile and section when KDE Connect is installed (see below)
 - Lock, Suspend, Log out, Power off, Settings
 
 It also hides tray icons it replaces (Blueman, Update Manager, System Reports).
@@ -140,6 +141,17 @@ it, with the Inter font. The lock screen gets a large fixed clock above a
 macOS-style date. The Dark Mode tile switches WhiteSur light/dark (theme and
 icons together). Undo with `./theme/uninstall.sh` and `sudo ./login/uninstall.sh`.
 
+## Optional: phone integration (KDE Connect)
+
+```bash
+./phone/install.sh
+```
+
+Installs KDE Connect and opens its ports if the firewall is on. Install the
+KDE Connect app on your phone, then use **Control Center → Phone → Pair a
+phone…**. You get your phone's notifications in the Notification Center,
+clipboard sync, **Send files…**, **Ring phone** and **Browse phone files**.
+
 ## Layout of this repo
 
 ```
@@ -151,6 +163,7 @@ bin/            Clipboard recorder, screenshot tool (snip), shortcut helper
 gpu/            Optional: NVIDIA GPU off until needed (gpu on/off)
 theme/          Optional: WhiteSur theme, icons, cursor, Inter font, lock screen
 login/          Optional: macOS-style login screen (sudo)
+phone/          Optional: KDE Connect phone integration
 ```
 
 ## Notes
