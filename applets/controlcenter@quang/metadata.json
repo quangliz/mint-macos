@@ -1,0 +1,7 @@
+{
+  "uuid": "controlcenter@quang",
+  "name": "Control Center",
+  "description": "macOS-style control center: Wi-Fi, Bluetooth, brightness, volume, night light, do not disturb, dark mode, power mode",
+  "max-instances": 1,
+  "icon": "preferences-system"
+}

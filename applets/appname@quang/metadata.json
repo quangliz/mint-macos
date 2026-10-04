@@ -1,0 +1,7 @@
+{
+  "uuid": "appname@quang",
+  "name": "Active App Name",
+  "description": "macOS-style bold name of the focused app, with Hide / Close / Quit menu",
+  "max-instances": 1,
+  "icon": "preferences-system-windows"
+}

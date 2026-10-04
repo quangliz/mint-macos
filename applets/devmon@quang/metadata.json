@@ -1,0 +1,7 @@
+{
+  "uuid": "devmon@quang",
+  "name": "Device Monitor",
+  "description": "CPU, memory, temperatures, network, disk and battery at a glance",
+  "max-instances": 1,
+  "icon": "utilities-system-monitor"
+}

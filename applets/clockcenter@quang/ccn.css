@@ -1,0 +1,172 @@
+/* Clock & Notification Center — macOS-style look.
+   Accent #1f9ede matches the Mint-Y-Aqua theme and the Control Center.
+   Every rule is scoped under .ccn (the popup) so other menus are untouched. */
+
+.ccn-section {
+  width: 336px;
+  padding: 6px 14px 10px 14px;
+  spacing: 8px;
+}
+
+.ccn-header { padding: 0 4px; }
+
+.ccn-title {
+  font-weight: bold;
+  font-size: 1.05em;
+}
+
+.ccn-pill {
+  padding: 2px 10px;
+  border-radius: 99px;
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.ccn-pill:hover { background-color: rgba(255, 255, 255, 0.16); }
+
+.ccn-empty {
+  color: rgba(255, 255, 255, 0.45);
+  padding: 16px 0;
+}
+
+.ccn-scroll { max-height: 380px; }
+.ccn-list { spacing: 8px; }
+
+/* Notification card */
+.ccn-card {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.07);
+}
+.ccn-card:hover { background-color: rgba(255, 255, 255, 0.11); }
+
+.ccn-card-row { spacing: 10px; }
+.ccn-card-icon { width: 32px; height: 32px; }
+.ccn-card-icon-symbolic {
+  border-radius: 99px;
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.ccn-card-text { spacing: 1px; }
+
+.ccn-card-app {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.55);
+}
+.ccn-card-time {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.ccn-card-close {
+  padding: 2px;
+  border-radius: 99px;
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.ccn-card-heading { font-weight: bold; }
+.ccn-card-body {
+  font-size: 0.95em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Calendar card */
+.ccn .calendar-main-box { margin: 0 14px 8px 14px; }
+
+.ccn-calendar-card {
+  padding: 10px 12px 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+.ccn-cal-header { padding: 0 2px 4px 2px; spacing: 4px; }
+
+.ccn .ccn-cal-month {
+  font-weight: bold;
+  padding: 4px 0;
+  color: #1f9ede;
+}
+
+.ccn-cal-nav {
+  padding: 4px;
+  border-radius: 99px;
+}
+.ccn-cal-nav:hover { background-color: rgba(255, 255, 255, 0.12); }
+
+.ccn .calendar-day-base {
+  width: 2.2em;
+  height: 2.2em;
+  padding: 0;
+  font-size: 0.9em;
+  border-radius: 99px;
+}
+.ccn .calendar-day-base:hover {
+  font-weight: normal;
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+
+.ccn .calendar-nonwork-day {
+  font-weight: normal;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ccn .calendar-day-heading {
+  margin-top: 0.4em;
+  font-size: 0.75em;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ccn .calendar-not-today { border-radius: 99px; }
+.ccn .calendar-not-today:selected {
+  font-weight: bold;
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.ccn .calendar-other-month-day { color: rgba(255, 255, 255, 0.22); }
+
+.ccn .calendar-today {
+  font-weight: bold;
+  color: #ffffff;
+  background-color: #1f9ede;
+  border-radius: 99px;
+}
+.ccn .calendar-today:hover { background-color: #3aaee8; }
+
+/* Selected day's events, inside the calendar card */
+.ccn-day-sep {
+  height: 1px;
+  margin: 10px 0 8px 0;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.ccn-day-header { padding: 0 2px 4px 2px; }
+.ccn-day-title { font-weight: bold; font-size: 0.95em; }
+.ccn-link {
+  font-size: 0.85em;
+  color: #1f9ede;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.ccn-link:hover { background-color: rgba(31, 158, 222, 0.15); }
+.ccn-day-events { spacing: 2px; }
+.ccn-day-empty {
+  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 2px 2px;
+}
+.ccn-event-row {
+  padding: 4px 4px;
+  border-radius: 6px;
+}
+.ccn-event-row:hover { background-color: rgba(255, 255, 255, 0.08); }
+.ccn-event-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+}
+.ccn-event-time {
+  width: 52px;
+  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.6);
+}

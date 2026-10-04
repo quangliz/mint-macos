@@ -1,0 +1,54 @@
+{
+  "interval": {
+    "type": "spinbutton",
+    "default": 2,
+    "min": 1,
+    "max": 30,
+    "step": 1,
+    "units": "seconds",
+    "description": "Refresh interval"
+  },
+  "show-cpu": {
+    "type": "switch",
+    "default": true,
+    "description": "Show CPU usage in panel"
+  },
+  "show-mem": {
+    "type": "switch",
+    "default": true,
+    "description": "Show memory usage in panel"
+  },
+  "show-temp": {
+    "type": "switch",
+    "default": true,
+    "description": "Show CPU temperature in panel"
+  },
+  "show-net": {
+    "type": "switch",
+    "default": false,
+    "description": "Show network speed in panel"
+  },
+  "warn-temp": {
+    "type": "spinbutton",
+    "default": 85,
+    "min": 50,
+    "max": 110,
+    "step": 1,
+    "units": "°C",
+    "description": "Highlight temperature above"
+  },
+  "show-gpu": {
+    "type": "switch",
+    "default": true,
+    "description": "Show NVIDIA/CUDA GPU usage in panel"
+  },
+  "gpu-interval": {
+    "type": "spinbutton",
+    "default": 5,
+    "min": 2,
+    "max": 60,
+    "step": 1,
+    "units": "seconds",
+    "description": "NVIDIA GPU refresh interval"
+  }
+}

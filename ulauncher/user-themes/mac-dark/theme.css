@@ -1,0 +1,68 @@
+/* Spotlight-like: rounded dark panel, big search field, blue selection */
+@define-color bg_color #262629;
+@define-color window_bg @bg_color;
+@define-color window_border_color rgba(255, 255, 255, 0.12);
+@define-color prefs_backgroud rgba(255, 255, 255, 0.15);
+
+@define-color selected_bg_color #0a64d8;
+@define-color selected_fg_color #ffffff;
+@define-color input_color #f2f2f2;
+@define-color caret_color #6cb4ff;
+
+@define-color item_name #e8e8e8;
+@define-color item_text #9a9a9e;
+@define-color item_box_selected #0a64d8;
+@define-color item_text_selected rgba(255, 255, 255, 0.85);
+@define-color item_name_selected #ffffff;
+@define-color item_shortcut_color #77777c;
+@define-color item_shortcut_shadow transparent;
+@define-color item_shortcut_color_sel rgba(255, 255, 255, 0.85);
+@define-color item_shortcut_shadow_sel transparent;
+
+.app {
+    background-color: @window_bg;
+    border: 1px solid @window_border_color;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+.input {
+    color: @input_color;
+    font-size: 175%;
+    padding: 8px 0 8px 10px;
+}
+
+.input *:selected,
+.input *:focus,
+*:selected:focus {
+    background-color: alpha(@selected_bg_color, 0.9);
+    color: @selected_fg_color;
+}
+
+.item-box {
+    border-radius: 8px;
+    margin: 0 6px;
+}
+.item-name { color: @item_name; font-size: 115%; }
+.item-text { color: @item_text; }
+
+.selected.item-box {
+    background-color: @item_box_selected;
+    border: none;
+}
+.selected.item-box .item-text { color: @item_text_selected; }
+.selected.item-box .item-name { color: @item_name_selected; }
+
+.item-shortcut {
+    color: @item_shortcut_color;
+    text-shadow: none;
+}
+.selected.item-box .item-shortcut {
+    color: @item_shortcut_color_sel;
+    text-shadow: none;
+}
+
+.prefs-btn { border-radius: 99px; opacity: 0.7; }
+.prefs-btn:hover { background-color: @prefs_backgroud; }
+
+.no-window-shadow { margin: -20px; }

@@ -1,0 +1,11 @@
+{
+  "required_api_version": "^2.0.0",
+  "name": "Clipboard History",
+  "description": "Search text you copied earlier. Enter copies it again.",
+  "developer_name": "quang",
+  "icon": "images/icon.svg",
+  "options": { "query_debounce": 0.05 },
+  "preferences": [
+    { "id": "kw", "type": "keyword", "name": "Clipboard history", "default_value": "cb" }
+  ]
+}

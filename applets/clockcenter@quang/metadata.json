@@ -1,0 +1,7 @@
+{
+ "uuid": "clockcenter@quang",
+ "name": "Clock & Notification Center",
+ "description": "macOS-style clock: click for notifications plus calendar in one panel (based on the Cinnamon calendar applet)",
+ "icon": "gnome-calendar",
+ "max-instances": 1
+}
