@@ -20,7 +20,7 @@ only if they're missing. Use `./install.sh --no-packages` to skip that step.
 
 Before changing anything, it saves your current settings to
 `~/.local/share/mint-macos-backup/<time>/`. Running it again is safe; it
-updates everything in place.
+updates everything in place and keeps that first backup as the restore point.
 
 ## Undo
 
@@ -28,9 +28,13 @@ updates everything in place.
 ./uninstall.sh
 ```
 
-This restores the settings from the most recent backup, removes the applets,
-themes and autostart entries, and leaves the packages installed. Restart
-Cinnamon afterwards with **Ctrl+Alt+Esc**.
+This puts back the settings the install changed (panel, shortcuts, hot
+corners, window buttons, dock, search) and removes the applets, their
+settings, the dock and search themes and the autostart entries. Settings
+you changed yourself since installing, like your wallpaper, are kept. If
+you installed the WhiteSur look it is undone too, and it lists any optional
+parts that need `sudo` to remove. Packages stay installed. Restart Cinnamon
+afterwards with **Ctrl+Alt+Esc**.
 
 ## What you get
 
@@ -147,7 +151,8 @@ icons together). Undo with `./theme/uninstall.sh` and `sudo ./login/uninstall.sh
 ./phone/install.sh
 ```
 
-Installs KDE Connect and opens its ports if the firewall is on. Install the
+Installs KDE Connect and opens its ports if the firewall is on
+(undo with `./phone/uninstall.sh`, add `--remove-app` to remove KDE Connect too). Install the
 KDE Connect app on your phone, then use **Control Center → Phone → Pair a
 phone…**. You get your phone's notifications in the Notification Center,
 clipboard sync, **Send files…**, **Ring phone** and **Browse phone files**.

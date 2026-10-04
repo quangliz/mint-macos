@@ -50,6 +50,8 @@ if [[ ! -f "$SAVE" ]]; then
         echo "org.cinnamon.desktop.wm.preferences titlebar-font $(gsettings get org.cinnamon.desktop.wm.preferences titlebar-font)"
         echo "org.gnome.desktop.interface font-name $(gsettings get org.gnome.desktop.interface font-name)"
         echo "org.nemo.desktop font $(gsettings get org.nemo.desktop font)"
+        gsettings get org.x.apps.portal color-scheme >/dev/null 2>&1 &&
+            echo "org.x.apps.portal color-scheme $(gsettings get org.x.apps.portal color-scheme)"
         for k in floating-widgets use-custom-format time-format date-format font-time font-date font-message; do
             echo "org.cinnamon.desktop.screensaver $k $(gsettings get org.cinnamon.desktop.screensaver $k)"
         done

@@ -23,7 +23,8 @@ done
 APPLETS_DIR="$HOME/.local/share/cinnamon/applets"
 SPICES_DIR="$HOME/.config/cinnamon/spices"
 AUTOSTART="$HOME/.config/autostart"
-BACKUP="$HOME/.local/share/mint-macos-backup/$(date +%Y%m%d-%H%M%S)"
+BACKUP_ROOT="$HOME/.local/share/mint-macos-backup"
+BACKUP="$BACKUP_ROOT/$(date +%Y%m%d-%H%M%S)"
 UUIDS=(appname@quang clockcenter@quang controlcenter@quang devmon@quang weather@quang)
 
 step() { printf '\n\033[1;36m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
@@ -47,19 +48,27 @@ if ! gsettings get org.cinnamon enabled-applets >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------- backup
-step "Backing up your current settings to $BACKUP"
-mkdir -p "$BACKUP"
-dconf dump /org/cinnamon/ > "$BACKUP/org-cinnamon.dconf"
-dconf dump /net/launchpad/plank/ > "$BACKUP/plank.dconf" 2>/dev/null || true
-gsettings get org.freedesktop.ibus.general.hotkey triggers > "$BACKUP/ibus-triggers.txt" 2>/dev/null || true
-gsettings get org.gnome.desktop.wm.preferences button-layout > "$BACKUP/gnome-button-layout.txt" 2>/dev/null || true
-[[ -f "$HOME/.config/ulauncher/settings.json" ]] && cp "$HOME/.config/ulauncher/settings.json" "$BACKUP/ulauncher-settings.json"
-mkdir -p "$BACKUP/autostart"
-for f in plank.desktop ulauncher.desktop cliphist.desktop; do
-    [[ -f "$AUTOSTART/$f" ]] && cp "$AUTOSTART/$f" "$BACKUP/autostart/"
-done
-echo "$BACKUP" > "$HOME/.local/share/mint-macos-backup/LATEST"
-note "done"
+# uninstall.sh restores the settings from before the *first* install, so a
+# re-install keeps that backup instead of saving the already-changed settings.
+if [[ -f "$BACKUP_ROOT/LATEST" && -f "$(cat "$BACKUP_ROOT/LATEST")/org-cinnamon.dconf" ]]; then
+    BACKUP="$(cat "$BACKUP_ROOT/LATEST")"
+    step "Already installed; keeping the backup of your original settings"
+    note "$BACKUP"
+else
+    step "Backing up your current settings to $BACKUP"
+    mkdir -p "$BACKUP"
+    dconf dump /org/cinnamon/ > "$BACKUP/org-cinnamon.dconf"
+    dconf dump /net/launchpad/plank/ > "$BACKUP/plank.dconf" 2>/dev/null || true
+    gsettings get org.freedesktop.ibus.general.hotkey triggers > "$BACKUP/ibus-triggers.txt" 2>/dev/null || true
+    gsettings get org.gnome.desktop.wm.preferences button-layout > "$BACKUP/gnome-button-layout.txt" 2>/dev/null || true
+    [[ -f "$HOME/.config/ulauncher/settings.json" ]] && cp "$HOME/.config/ulauncher/settings.json" "$BACKUP/ulauncher-settings.json"
+    mkdir -p "$BACKUP/autostart"
+    for f in plank.desktop ulauncher.desktop cliphist.desktop; do
+        [[ -f "$AUTOSTART/$f" ]] && cp "$AUTOSTART/$f" "$BACKUP/autostart/"
+    done
+    echo "$BACKUP" > "$BACKUP_ROOT/LATEST"
+    note "done"
+fi
 
 # ---------------------------------------------------------------- packages
 if [[ $INSTALL_PACKAGES -eq 1 ]]; then

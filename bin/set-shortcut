@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """set-shortcut NAME COMMAND BINDING... — add or update a Cinnamon custom shortcut.
+   set-shortcut --remove NAME...       — remove custom shortcuts by name.
 
 Matches an existing shortcut by its name, so running it again updates it
 instead of adding a duplicate.
@@ -20,7 +21,23 @@ def read(key):
     return subprocess.run(["dconf", "read", key], capture_output=True, text=True).stdout.strip()
 
 
+def remove(names_to_remove):
+    names = get_list()
+    keep = []
+    for n in names:
+        if read(BASE + n + "/name") in {repr(x) for x in names_to_remove}:
+            subprocess.run(["dconf", "reset", "-f", BASE + n + "/"], check=True)
+            print(f"removed {n}")
+        else:
+            keep.append(n)
+    if keep != names:
+        subprocess.run(["gsettings", "set", "org.cinnamon.desktop.keybindings", "custom-list", repr(keep)], check=True)
+
+
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "--remove":
+        remove(sys.argv[2:])
+        return
     if len(sys.argv) < 4:
         sys.exit(__doc__)
     name, command, bindings = sys.argv[1], sys.argv[2], sys.argv[3:]
