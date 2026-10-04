@@ -37,7 +37,7 @@ Cinnamon afterwards with **Ctrl+Alt+Esc**.
 ### Top bar
 | Left | Right |
 |---|---|
-| Mint menu, then the active app's name in bold (click: Hide / Close / Quit) | CPU · RAM · CPU temperature · GPU, the tray, the Control Center with battery %, and the clock |
+| Mint menu, then the active app's name in bold and the window title (click: Hide / Close / Quit) | Weather, CPU · RAM · CPU temperature · GPU, the tray, the Control Center with battery %, and the clock |
 
 ### Liquid glass
 The Control Center and the clock panel are frosted glass: a live, blurred view
@@ -47,6 +47,13 @@ blur over clones of the windows, created only while a panel is open. If the
 shader can't run, the panels fall back to the normal theme background.
 The glass is dark or light to match the Cinnamon theme, and switches live
 when you flip the Dark Mode tile.
+
+### Weather
+The current condition and temperature in the top bar. Click it for a glass
+panel with feels-like, humidity and wind, a 12-hour strip and a 7-day forecast
+with range bars. Data comes from [Open-Meteo](https://open-meteo.com) (free, no
+account); the location is the one Night Light already detected, and the place
+name comes from your timezone. Both can be set in the applet's settings.
 
 ### Control Center (the two-switches icon)
 - Tiles: Wi-Fi, Bluetooth, Night Light, Do Not Disturb, Dark Mode, Power Mode

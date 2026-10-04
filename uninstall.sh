@@ -51,7 +51,7 @@ for f in plank.desktop ulauncher.desktop cliphist.desktop; do
 done
 
 # Files we installed
-rm -rf "$HOME/.local/share/cinnamon/applets/"{appname,clockcenter,controlcenter,devmon}@quang
+rm -rf "$HOME/.local/share/cinnamon/applets/"{appname,clockcenter,controlcenter,devmon,weather}@quang
 rm -rf "$HOME/.local/share/plank/themes/MacStyle"
 rm -rf "$HOME/.config/ulauncher/user-themes/mac-dark"
 rm -rf "$HOME/.local/share/ulauncher/extensions/com.quang.cliphist"

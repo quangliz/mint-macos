@@ -1,0 +1,40 @@
+{
+  "units": {
+    "type": "combobox",
+    "default": "celsius",
+    "options": {
+      "Celsius (°C, km/h)": "celsius",
+      "Fahrenheit (°F, mph)": "fahrenheit"
+    },
+    "description": "Units"
+  },
+  "refresh": {
+    "type": "spinbutton",
+    "default": 15,
+    "min": 5,
+    "max": 120,
+    "step": 5,
+    "units": "minutes",
+    "description": "Refresh every"
+  },
+  "city": {
+    "type": "entry",
+    "default": "",
+    "description": "City (search by name, e.g. \"Da Nang\"; empty: automatic)"
+  },
+  "location-name": {
+    "type": "entry",
+    "default": "",
+    "description": "Place name shown (empty: from the city search or your timezone)"
+  },
+  "latitude": {
+    "type": "entry",
+    "default": "",
+    "description": "Latitude (used when City is empty; empty: the location Night Light detected)"
+  },
+  "longitude": {
+    "type": "entry",
+    "default": "",
+    "description": "Longitude"
+  }
+}

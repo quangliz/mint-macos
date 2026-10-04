@@ -24,7 +24,7 @@ APPLETS_DIR="$HOME/.local/share/cinnamon/applets"
 SPICES_DIR="$HOME/.config/cinnamon/spices"
 AUTOSTART="$HOME/.config/autostart"
 BACKUP="$HOME/.local/share/mint-macos-backup/$(date +%Y%m%d-%H%M%S)"
-UUIDS=(appname@quang clockcenter@quang controlcenter@quang devmon@quang)
+UUIDS=(appname@quang clockcenter@quang controlcenter@quang devmon@quang weather@quang)
 
 step() { printf '\n\033[1;36m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
@@ -106,17 +106,18 @@ gsettings set org.cinnamon panel-zone-text-sizes '[{"panelId": 1, "left": 0.0, "
 gsettings set org.cinnamon enabled-applets "[
   'panel1:left:0:menu@cinnamon.org:0',
   'panel1:left:1:appname@quang:17',
-  'panel1:right:0:devmon@quang:15',
-  'panel1:right:1:systray@cinnamon.org:3',
-  'panel1:right:2:xapp-status@cinnamon.org:4',
-  'panel1:right:3:removable-drives@cinnamon.org:7',
-  'panel1:right:4:printers@cinnamon.org:6',
-  'panel1:right:5:keyboard@cinnamon.org:8',
-  'panel1:right:6:favorites@cinnamon.org:9',
-  'panel1:right:8:controlcenter@quang:16',
+  'panel1:right:0:weather@quang:19',
+  'panel1:right:1:devmon@quang:15',
+  'panel1:right:2:systray@cinnamon.org:3',
+  'panel1:right:3:xapp-status@cinnamon.org:4',
+  'panel1:right:4:removable-drives@cinnamon.org:7',
+  'panel1:right:5:printers@cinnamon.org:6',
+  'panel1:right:6:keyboard@cinnamon.org:8',
+  'panel1:right:7:favorites@cinnamon.org:9',
+  'panel1:right:9:controlcenter@quang:16',
   'panel1:right:20:clockcenter@quang:18'
 ]"
-note "Mint menu + app name on the left; monitor, tray, Control Center and clock on the right"
+note "Mint menu + app name on the left; weather, monitor, tray, Control Center and clock on the right"
 
 # If our applets were already running (re-install), reload them so new code is used.
 for uuid in "${UUIDS[@]}"; do
@@ -285,7 +286,7 @@ fi
 
 step "Done"
 cat <<EOF
-    Top bar: Mint menu · app name · CPU/RAM/temp/GPU · Control Center (battery %) · clock
+    Top bar: Mint menu · app name · weather · CPU/RAM/temp/GPU · Control Center (battery %) · clock
     Click the clock for notifications + calendar; the two-switches icon for Control Center.
     Super+Space: search   ·   'cb' in search: clipboard history
     Undo everything:  $REPO/uninstall.sh

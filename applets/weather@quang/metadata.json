@@ -1,0 +1,7 @@
+{
+  "uuid": "weather@quang",
+  "name": "Weather",
+  "description": "macOS-style weather in the top bar with an hourly and 7-day forecast (Open-Meteo, no account needed)",
+  "max-instances": 1,
+  "icon": "weather-few-clouds"
+}
