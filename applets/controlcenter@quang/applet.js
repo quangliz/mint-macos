@@ -6,11 +6,13 @@ const Interfaces = imports.misc.interfaces;
 const St = imports.gi.St;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
+const GObject = imports.gi.GObject;
 const Cvc = imports.gi.Cvc;
 const Mainloop = imports.mainloop;
 const Clutter = imports.gi.Clutter;
 const Pango = imports.gi.Pango;
 const XApp = imports.gi.XApp;
+const NM = imports.gi.NM;
 
 // Tray icons we fold into the Control Center as alert rows (macOS keeps
 // these in System Settings rather than the menu bar).
@@ -37,6 +39,10 @@ const UPowerProxy = Gio.DBusProxy.makeProxyWrapper(`<node>
     <property name="OnBattery" type="b" access="read"/>
   </interface>
 </node>`);
+const PPD_NAME = "org.freedesktop.UPower.PowerProfiles";
+const PPD_PATH = "/org/freedesktop/UPower/PowerProfiles";
+const KDC_NAME = "org.kde.kdeconnect";
+const COLOR_NAME = "org.cinnamon.SettingsDaemon.Color";
 const MprisAppProxy = Gio.DBusProxy.makeProxyWrapper(`<node>
   <interface name="org.mpris.MediaPlayer2">
     <method name="Raise"/>
@@ -44,6 +50,21 @@ const MprisAppProxy = Gio.DBusProxy.makeProxyWrapper(`<node>
   </interface>
 </node>`);
 
+// Now Playing album art
+const ART_STYLE = "width: 72px; height: 72px; border-radius: 12px;";
+// Fades a sliding line out at the edge(s) where text is cut off
+const EDGE_FADE = `
+uniform sampler2D tex;
+uniform float fl;
+uniform float fr;
+void main() {
+  vec4 col = texture2D(tex, cogl_tex_coord_in[0].st);
+  float x = cogl_tex_coord_in[0].s;
+  float a = 1.0;
+  if (fl > 0.001) a *= clamp(x / fl, 0.0, 1.0);
+  if (fr > 0.001) a *= clamp((1.0 - x) / fr, 0.0, 1.0);
+  cogl_color_out = col * a;
+}`;
 const ACCENT = "#1f9ede";  // Mint-Y-Aqua accent, shared with the theme sliders and the clock panel
 let GLASS = Glass.palette(false);
 
@@ -75,18 +96,6 @@ function themeExists(name) {
     for (let dir of [GLib.get_home_dir() + "/.themes", GLib.get_home_dir() + "/.local/share/themes", "/usr/share/themes"])
         if (GLib.file_test(`${dir}/${name}`, GLib.FileTest.IS_DIR)) return true;
     return false;
-}
-
-// Split a `nmcli -t` line on unescaped colons
-function nmSplit(line) {
-    let out = [], cur = "";
-    for (let i = 0; i < line.length; i++) {
-        if (line[i] === "\\" && i + 1 < line.length) { cur += line[++i]; continue; }
-        if (line[i] === ":") { out.push(cur); cur = ""; continue; }
-        cur += line[i];
-    }
-    out.push(cur);
-    return out;
 }
 
 // A macOS-style toggle tile: round icon + title + subtitle
@@ -140,12 +149,14 @@ class ControlCenter extends Applet.TextIconApplet {
         let labelBin = this._applet_label.get_parent();
         this.actor.insert_child_below(this._alertDot, labelBin.get_parent() === this.actor ? labelBin : null);
         this._updatePanelBattery();
-        this._watchPowerSource();
         this._batteryTimer = Mainloop.timeout_add_seconds(30, () => { this._updatePanelBattery(); return true; });
 
         // We provide Bluetooth controls, so tell Cinnamon to hide Blueman's
         // tray icon (same mechanism the stock network/sound applets use).
         this.uuid = metadata.uuid;
+        this._path = metadata.path;
+        this._liveSignals = [];   // [object, id] for the D-Bus watchers below
+        this._queued = {};        // pending _queue() timeouts
         imports.ui.main.systrayManager.registerTrayIconReplacement("blueman", this.uuid);
         for (let role in ALERT_APPS) imports.ui.main.systrayManager.registerTrayIconReplacement(role, this.uuid);
 
@@ -173,10 +184,20 @@ class ControlCenter extends Applet.TextIconApplet {
         this._applyGlassTheme();
 
         this.signals = [
-            [this.nightSettings, this.nightSettings.connect("changed::night-light-enabled", () => this._refreshNight())],
+            [this.nightSettings, this.nightSettings.connect("changed", () => this._refreshNight())],
             [this.notifSettings, this.notifSettings.connect("changed::display-notifications", () => this._refreshDnd())],
             [this.ifaceSettings, this.ifaceSettings.connect("changed::gtk-theme", () => this._refreshDark())],
         ];
+
+        // Wi-Fi, Bluetooth, power mode and phones are read over D-Bus and kept
+        // up to date by their services' signals. Starting a helper program
+        // from Cinnamon blocks the whole desktop for ~20 ms each, which made
+        // the panel slow to open, so opening it starts none.
+        this._initWifi();
+        this._initBt();
+        this._initPower();
+        this._initPhone();
+        this._initNight();
 
         this.menu.connect("open-state-changed", (m, open) => { if (open) this._refreshAll(); });
         this._refreshAll();
@@ -200,6 +221,27 @@ class ControlCenter extends Applet.TextIconApplet {
         if (this._mixer) this._mixer.close();
         if (this._nameWatchId) Gio.DBus.session.signal_unsubscribe(this._nameWatchId);
         for (let name of Array.from(this.players.keys())) this._removePlayer(name);
+        this._marquee(false);
+        // GObject's disconnect: some of these objects have their own disconnect()
+        // method (NM.Device's drops the network connection)
+        for (let [obj, id] of this._liveSignals) GObject.signal_handler_disconnect(obj, id);
+        if (this._wifiDev) for (let id of this._wifiDevIds) GObject.signal_handler_disconnect(this._wifiDev, id);
+        if (this._phoneSub) Gio.DBus.session.signal_unsubscribe(this._phoneSub);
+        for (let id of Object.values(this._queued)) GLib.source_remove(id);
+    }
+
+    // Run fn once, a moment later, however many times this is called before then
+    _queue(key, fn, ms = 0) {
+        if (this._queued[key]) return;
+        this._queued[key] = GLib.timeout_add(GLib.PRIORITY_DEFAULT_IDLE, ms, () => {
+            delete this._queued[key];
+            fn();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _watch(obj, signals, fn) {
+        for (let sig of signals) this._liveSignals.push([obj, obj.connect(sig, fn)]);
     }
 
     _styleFooterBtn(b) {
@@ -211,7 +253,7 @@ class ControlCenter extends Applet.TextIconApplet {
         if (!this._glass) return;
         GLASS = Glass.palette(this._glass.light);
         for (let t of this.tiles) t._style();
-        this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 10px; spacing: 12px;";
+        this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 12px; spacing: 14px;";
         for (let b of this._footerBtns) this._styleFooterBtn(b);
     }
 
@@ -220,17 +262,32 @@ class ControlCenter extends Applet.TextIconApplet {
         this.players = new Map();   // bus name -> { player, app, lastActive, propId }
 
         let card = this.mediaCard = new St.BoxLayout({ vertical: false, x_expand: true });
-        this.mediaArt = new St.Bin({ style: "width: 52px; height: 52px; border-radius: 8px; background-color: rgba(128,128,128,0.3);" });
+        this.mediaArt = new St.Bin({ style: ART_STYLE + " background-color: rgba(128,128,128,0.3);" });
         card.add_child(this.mediaArt);
 
         let text = new St.BoxLayout({ vertical: true, x_expand: true, reactive: true, track_hover: true,
                                       y_align: Clutter.ActorAlign.CENTER });
-        this.mediaTitle = new St.Label({ style: "font-weight: bold;" });
-        this.mediaArtist = new St.Label({ style: "font-size: 9pt; opacity: 0.7;" });
+        this.mediaTitle = new St.Label({ style: "font-weight: bold; font-size: 11.5pt;" });
+        this.mediaArtist = new St.Label({ style: "font-size: 10pt; opacity: 0.7;" });
+        // Each line sits in a clipped strip that asks for no width of its own,
+        // so a long title can't widen the panel; it slides instead (_marquee)
         for (let l of [this.mediaTitle, this.mediaArtist]) {
-            l.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-            text.add_child(l);
+            l.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+            let strip = new St.Widget({ layout_manager: new Clutter.FixedLayout(), clip_to_allocation: true,
+                                        x_expand: true, style: "width: 1px;" });
+            strip.add_child(l);
+            text.add_child(strip);
+            try {
+                strip._fade = new Clutter.ShaderEffect({ shader_type: Clutter.ShaderType.FRAGMENT_SHADER });
+                strip._fade.set_shader_source(EDGE_FADE);
+                strip._fade.set_uniform_value("tex", 0);
+                strip.add_effect(strip._fade);
+            } catch (e) { strip._fade = null; }
+            l.connect("notify::translation-x", () => this._updateFade(l));
+            strip.connect("notify::width", () => this._updateFade(l));
+            l.connect("notify::width", () => this._updateFade(l));
         }
+        this.menu.connect("open-state-changed", (m, open) => this._marquee(open));
         // Clicking the track brings the player window forward
         text.connect("button-release-event", () => {
             let p = this._currentPlayer();
@@ -239,10 +296,11 @@ class ControlCenter extends Applet.TextIconApplet {
         });
         card.add_child(text);
 
-        let controls = new St.BoxLayout({ vertical: false, style: "spacing: 2px;", y_align: Clutter.ActorAlign.CENTER });
-        let mkBtn = (icon, action) => {
+        let controls = new St.BoxLayout({ vertical: false, style: "spacing: 4px;", y_align: Clutter.ActorAlign.CENTER });
+        // Our own filled icons (icons/), like macOS; themes often draw thin outlines
+        let mkBtn = (icon, action, size = 22) => {
             let b = new St.Button({ reactive: true, track_hover: true,
-                child: new St.Icon({ icon_name: icon, icon_type: St.IconType.SYMBOLIC, icon_size: 18 }) });
+                child: new St.Icon({ gicon: this._mediaIcon(icon), icon_type: St.IconType.SYMBOLIC, icon_size: size }) });
             let style = () => b.style = "padding: 6px; border-radius: 99px;" +
                 (b.hover ? " background-color: rgba(128,128,128,0.3);" : "");
             b.connect("notify::hover", style);
@@ -251,9 +309,9 @@ class ControlCenter extends Applet.TextIconApplet {
             controls.add_child(b);
             return b;
         };
-        this.mediaPrev = mkBtn("media-skip-backward-symbolic", pl => pl.PreviousRemote(() => {}));
-        this.mediaPlay = mkBtn("media-playback-start-symbolic", pl => pl.PlayPauseRemote(() => {}));
-        this.mediaNext = mkBtn("media-skip-forward-symbolic", pl => pl.NextRemote(() => {}));
+        this.mediaPrev = mkBtn("backward", pl => pl.PreviousRemote(() => {}));
+        this.mediaPlay = mkBtn("play", pl => pl.PlayPauseRemote(() => {}), 28);   // bigger, like macOS
+        this.mediaNext = mkBtn("forward", pl => pl.NextRemote(() => {}));
         card.add_child(controls);
 
         this.mediaItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, activate: false, hover: false });
@@ -276,6 +334,54 @@ class ControlCenter extends Applet.TextIconApplet {
                     names.filter(n => n.startsWith(MPRIS_PREFIX)).forEach(n => this._addPlayer(n));
                 } catch (e) {}
             });
+    }
+
+    // Slide lines that don't fit: wait, scroll to the end, pause, slide back,
+    // repeat. Runs only while the panel is open.
+    _marquee(run) {
+        this._marqueeGen = (this._marqueeGen || 0) + 1;
+        let gen = this._marqueeGen;
+        for (let id of this._marqueeTimers || []) GLib.source_remove(id);
+        this._marqueeTimers = new Set();
+        let later = (ms, fn) => {
+            let id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
+                this._marqueeTimers.delete(id);
+                if (gen === this._marqueeGen) fn();
+                return GLib.SOURCE_REMOVE;
+            });
+            this._marqueeTimers.add(id);
+        };
+        for (let label of [this.mediaTitle, this.mediaArtist]) {
+            label.remove_all_transitions();
+            label.translation_x = 0;
+            if (!run) continue;
+            let cycle = () => {
+                let overflow = label.width - label.get_parent().width;
+                if (overflow <= 1) return;   // fits; check again when the text changes
+                label.ease({ translation_x: -overflow, duration: Math.max(1500, overflow * 35),
+                             mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
+                             onComplete: () => later(1500, () => label.ease({
+                                 translation_x: 0, duration: 400, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                                 onComplete: () => later(2500, cycle) })) });
+            };
+            later(1500, cycle);
+        }
+    }
+
+    // Fade the right edge while more text follows, the left once it has slid
+    _updateFade(label) {
+        let strip = label.get_parent(), fade = strip && strip._fade;
+        if (!fade) return;
+        let w = strip.width, overflow = label.width - w, shift = -label.translation_x;
+        fade.set_enabled(w > 0 && overflow > 1);
+        if (!(w > 0 && overflow > 1)) return;
+        let edge = Math.min(0.3, 18 / w);   // uniforms are typed by value: keep these floats
+        fade.set_uniform_value("fl", (shift > 0.5 ? edge : 0) + 1e-6);
+        fade.set_uniform_value("fr", (shift < overflow - 0.5 ? edge : 0) + 1e-6);
+    }
+
+    _mediaIcon(name) {
+        return Gio.FileIcon.new(Gio.File.new_for_path(`${this._path}/icons/media-${name}-symbolic.svg`));
     }
 
     _addPlayer(name) {
@@ -325,10 +431,14 @@ class ControlCenter extends Applet.TextIconApplet {
 
         let artist = meta["xesam:artist"];
         if (Array.isArray(artist)) artist = artist.join(", ");
-        this.mediaTitle.text = title;
-        this.mediaArtist.text = artist || meta["xesam:album"] || (p.app && p.app.Identity) || "";
+        let artistText = artist || meta["xesam:album"] || (p.app && p.app.Identity) || "";
+        if (this.mediaTitle.text !== title || this.mediaArtist.text !== artistText) {
+            this.mediaTitle.text = title;
+            this.mediaArtist.text = artistText;
+            this._marquee(this.menu.isOpen);
+        }
         let playing = p.player.PlaybackStatus === "Playing";
-        this.mediaPlay.child.icon_name = playing ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
+        this.mediaPlay.child.gicon = this._mediaIcon(playing ? "pause" : "play");
         this.mediaPrev.opacity = p.player.CanGoPrevious === false ? 90 : 255;
         this.mediaNext.opacity = p.player.CanGoNext === false ? 90 : 255;
         this._setArt(meta["mpris:artUrl"] || "");
@@ -337,10 +447,10 @@ class ControlCenter extends Applet.TextIconApplet {
     _setArt(url) {
         if (url === this._artUrl) return;
         this._artUrl = url;
-        let base = "width: 52px; height: 52px; border-radius: 8px;";
+        let base = ART_STYLE;
         let fallback = () => {
             this.mediaArt.style = base + " background-color: rgba(128,128,128,0.3);";
-            this.mediaArt.set_child(new St.Icon({ icon_name: "audio-x-generic-symbolic", icon_type: St.IconType.SYMBOLIC, icon_size: 24 }));
+            this.mediaArt.set_child(new St.Icon({ icon_name: "audio-x-generic-symbolic", icon_type: St.IconType.SYMBOLIC, icon_size: 32 }));
         };
         let apply = path => {
             if (this._artUrl !== url) return;
@@ -364,8 +474,7 @@ class ControlCenter extends Applet.TextIconApplet {
     _buildTiles() {
         this.wifiTile = new Tile("network-wireless-symbolic", "Wi-Fi", () => this._toggleWifi());
         this.btTile = new Tile("bluetooth-active-symbolic", "Bluetooth", () => this._toggleBt());
-        this.nightTile = new Tile("night-light-symbolic", "Night Light", () =>
-            this.nightSettings.set_boolean("night-light-enabled", !this.nightSettings.get_boolean("night-light-enabled")));
+        this.nightTile = new Tile("night-light-symbolic", "Night Light", () => this._toggleNight());
         this.dndTile = new Tile("notifications-disabled-symbolic", "Do Not Disturb", () =>
             this.notifSettings.set_boolean("display-notifications", !this.notifSettings.get_boolean("display-notifications")));
         this.darkTile = new Tile("weather-clear-night-symbolic", "Dark Mode", () => this._toggleDark());
@@ -387,24 +496,34 @@ class ControlCenter extends Applet.TextIconApplet {
     }
 
     // ---------- Phone (KDE Connect) ----------
+    _initPhone() {
+        // the daemon announces phones coming and going
+        this._phoneSub = Gio.DBus.session.signal_subscribe(KDC_NAME, "org.kde.kdeconnect.daemon", null,
+            "/modules/kdeconnect", null, Gio.DBusSignalFlags.NONE, () => this._queue("phone", () => this._refreshPhone(), 300));
+    }
+
+    // A KDE Connect D-Bus call; callback gets the unpacked reply, or null
+    _kdc(path, iface, method, params, callback) {
+        Gio.DBus.session.call(KDC_NAME, path, iface, method, params, null, Gio.DBusCallFlags.NO_AUTO_START, 3000, null, (c, res) => {
+            let reply = null;
+            try { reply = c.call_finish(res).recursiveUnpack(); } catch (e) {}
+            callback(reply);
+        });
+    }
+
     // Paired phones that are reachable right now, with battery level
     _phones(callback) {
-        run(["kdeconnect-cli", "--list-available", "--id-name-only"], (ok, out) => {
-            let phones = out.split("\n").filter(l => l.trim()).map(l => {
-                let i = l.indexOf(" ");
-                return { id: l.slice(0, i), name: l.slice(i + 1).trim() };
-            }).filter(p => /^[A-Za-z0-9_]+$/.test(p.id));
-            if (!phones.length) { callback(phones); return; }
-            let left = phones.length;
+        this._kdc("/modules/kdeconnect", "org.kde.kdeconnect.daemon", "devices", new GLib.Variant("(bb)", [true, true]), reply => {
+            let phones = (reply ? reply[0] : []).filter(id => /^[A-Za-z0-9_]+$/.test(id)).map(id => ({ id, name: id, battery: null }));
+            let left = phones.length * 2;
+            if (!left) { callback(phones); return; }
+            let done = () => { if (--left === 0) callback(phones); };
+            let get = (p, path, iface, prop, set) =>
+                this._kdc(`/modules/kdeconnect/devices/${p.id}${path}`, "org.freedesktop.DBus.Properties", "Get",
+                          new GLib.Variant("(ss)", [iface, prop]), r => { if (r) set(r[0]); done(); });
             for (let p of phones) {
-                run(["gdbus", "call", "--session", "--dest", "org.kde.kdeconnect",
-                     "--object-path", `/modules/kdeconnect/devices/${p.id}/battery`,
-                     "--method", "org.freedesktop.DBus.Properties.Get", "org.kde.kdeconnect.device.battery", "charge"],
-                    (ok2, out2) => {
-                        let m = out2.match(/<(-?\d+)>/);
-                        p.battery = m && Number(m[1]) >= 0 ? Number(m[1]) : null;
-                        if (--left === 0) callback(phones);
-                    });
+                get(p, "", "org.kde.kdeconnect.device", "name", v => p.name = v);
+                get(p, "/battery", "org.kde.kdeconnect.device.battery", "charge", v => p.battery = v >= 0 ? v : null);
             }
         });
     }
@@ -453,16 +572,57 @@ class ControlCenter extends Applet.TextIconApplet {
         });
     }
 
-    _refreshWifi() {
-        run(["nmcli", "-t", "-f", "WIFI", "radio"], (ok, out) => {
-            let on = out.trim() === "enabled";
-            if (!on) { this.wifiTile.set(false, "Off", "network-wireless-disabled-symbolic"); return; }
-            run(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"], (ok2, out2) => {
-                let cur = out2.split("\n").map(nmSplit).find(f => f[0] === "yes");
-                this.wifiTile.set(true, cur ? cur[1] : "Not connected",
-                    cur ? "network-wireless-signal-" + this._signalName(Number(cur[2])) + "-symbolic" : "network-wireless-offline-symbolic");
-            });
+    // ---------- Wi-Fi (NetworkManager) ----------
+    _initWifi() {
+        this._wifiDevIds = [];
+        NM.Client.new_async(null, (o, res) => {
+            try { this._nm = NM.Client.new_finish(res); } catch (e) { global.logError("controlcenter: NetworkManager: " + e); }
+            if (this._nm) this._watch(this._nm, ["notify::wireless-enabled", "notify::active-connections", "device-added", "device-removed"],
+                                      () => this._queue("wifi", () => this._updateWifi()));
+            this._updateWifi();
         });
+    }
+
+    _updateWifi() {
+        let dev = this._nm ? this._nm.get_devices().find(d => d.get_device_type() === NM.DeviceType.WIFI) || null : null;
+        if (dev !== this._wifiDev) {
+            if (this._wifiDev) for (let id of this._wifiDevIds) GObject.signal_handler_disconnect(this._wifiDev, id);
+            this._wifiDev = dev;
+            this._wifiDevIds = !dev ? [] : ["notify::active-access-point", "access-point-added", "access-point-removed", "notify::last-scan"]
+                .map(sig => dev.connect(sig, () => this._queue("wifi", () => this._updateWifi())));
+        }
+        if (!dev || !this._nm.wireless_get_enabled()) {
+            this.wifiTile.set(false, dev ? "Off" : "Unavailable", "network-wireless-disabled-symbolic");
+            this._fillWifiList(null);
+            return;
+        }
+        let ssidOf = ap => { let b = ap.get_ssid(); return b ? NM.utils_ssid_to_utf8(b.get_data()) : ""; };
+        let active = dev.get_active_access_point();
+        let current = active ? ssidOf(active) : null;
+        this.wifiTile.set(true, current || "Not connected", active ?
+            `network-wireless-signal-${this._signalName(active.get_strength())}-symbolic` : "network-wireless-offline-symbolic");
+
+        // One row per network name, at its strongest access point
+        let best = new Map();
+        for (let ap of dev.get_access_points()) {
+            let ssid = ssidOf(ap);
+            if (!ssid || (best.has(ssid) && best.get(ssid).strength >= ap.get_strength())) continue;
+            // PRIVACY (0x1) is WEP; the WPA/RSN flags cover everything newer
+            let secure = (ap.get_flags() & 0x1) || ap.get_wpa_flags() || ap.get_rsn_flags();
+            best.set(ssid, { ssid, strength: ap.get_strength(), secure: !!secure, inUse: ssid === current });
+        }
+        let nets = Array.from(best.values())
+            .sort((a, b) => b.inUse - a.inUse || b.strength - a.strength)
+            .slice(0, 12)
+            .map(n => ({ inUse: n.inUse, ssid: n.ssid,
+                         icon: `network-wireless-signal-${this._signalName(n.strength)}${n.secure ? "-secure" : ""}-symbolic` }));
+        this._fillWifiList(nets);
+    }
+
+    // Look for new networks; results arrive through the device's signals
+    _scanWifi() {
+        if (this._wifiDev && this._nm.wireless_get_enabled())
+            this._wifiDev.request_scan_async(null, (d, res) => { try { d.request_scan_finish(res); } catch (e) {} });
     }
 
     _signalName(s) {
@@ -470,37 +630,163 @@ class ControlCenter extends Applet.TextIconApplet {
     }
 
     _toggleWifi() {
-        let target = this.wifiTile.active ? "off" : "on";
-        this.wifiTile.set(!this.wifiTile.active, target === "on" ? "Turning on…" : "Off");
-        run(["nmcli", "radio", "wifi", target], () => Mainloop.timeout_add_seconds(target === "on" ? 4 : 1, () => {
-            this._refreshWifi(); this._refreshWifiList(); return false;
-        }));
+        if (!this._nm) return;
+        let on = !this.wifiTile.active;
+        this.wifiTile.set(on, on ? "Turning on…" : "Off");
+        this._nm.dbus_set_property(NM.DBUS_PATH, NM.DBUS_INTERFACE, "WirelessEnabled", GLib.Variant.new_boolean(on), -1, null,
+            (c, res) => { try { c.dbus_set_property_finish(res); } catch (e) { this._updateWifi(); } });
     }
 
-    _refreshBt() {
-        run(["bluetoothctl", "show"], (ok, out) => {
-            let on = /Powered:\s*yes/.test(out);
-            if (!ok || !out.trim()) { this.btTile.set(false, "Unavailable", "bluetooth-disabled-symbolic"); return; }
-            if (!on) { this.btTile.set(false, "Off", "bluetooth-disabled-symbolic"); return; }
-            run(["bluetoothctl", "devices", "Connected"], (ok2, out2) => {
-                let names = out2.split("\n").filter(l => l.startsWith("Device ")).map(l => l.split(" ").slice(2).join(" "));
-                this.btTile.set(true, names.length ? names.join(", ") : "On", "bluetooth-active-symbolic");
-            });
+    // ---------- Bluetooth (BlueZ) ----------
+    _initBt() {
+        let mgr = new Gio.DBusObjectManagerClient({ bus_type: Gio.BusType.SYSTEM, name: "org.bluez", object_path: "/",
+                                                    flags: Gio.DBusObjectManagerClientFlags.DO_NOT_AUTO_START });
+        mgr.init_async(GLib.PRIORITY_DEFAULT, null, (m, res) => {
+            try {
+                m.init_finish(res);
+                this._bluez = m;
+                this._watch(m, ["object-added", "object-removed", "interface-proxy-properties-changed", "notify::name-owner"],
+                            () => this._queue("bt", () => this._updateBt()));
+            } catch (e) {}
+            this._updateBt();
         });
+    }
+
+    _btProxies(iface) {
+        if (!this._bluez || !this._bluez.name_owner) return [];
+        return this._bluez.get_objects().map(o => o.get_interface(iface)).filter(Boolean);
+    }
+
+    _updateBt() {
+        let prop = (proxy, name) => { let v = proxy.get_cached_property(name); return v ? v.unpack() : null; };
+        let adapter = this._btProxies("org.bluez.Adapter1")[0];
+        if (!adapter) {
+            this.btTile.set(false, "Unavailable", "bluetooth-disabled-symbolic");
+            this._fillBtList(null);
+            return;
+        }
+        if (!prop(adapter, "Powered")) {
+            this.btTile.set(false, "Off", "bluetooth-disabled-symbolic");
+            this._fillBtList(null);
+            return;
+        }
+        let devs = this._btProxies("org.bluez.Device1").filter(d => prop(d, "Paired"))
+            .map(d => ({ path: d.g_object_path, name: prop(d, "Alias") || prop(d, "Address"), on: !!prop(d, "Connected") }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        let connected = devs.filter(d => d.on).map(d => d.name);
+        this.btTile.set(true, connected.length ? connected.join(", ") : "On", "bluetooth-active-symbolic");
+        this._fillBtList(devs);
     }
 
     _toggleBt() {
         let turnOn = !this.btTile.active;
         this.btTile.set(turnOn, turnOn ? "Turning on…" : "Off");
+        // rfkill first: a soft-blocked adapter can't be powered on over D-Bus
         let cmd = turnOn ? "rfkill unblock bluetooth; sleep 1; bluetoothctl power on" : "bluetoothctl power off";
-        run(["sh", "-c", cmd], () => { this._refreshBt(); this._refreshBtList(); });
+        run(["sh", "-c", cmd], () => this._updateBt());
+    }
+
+    // ---------- Night Light ----------
+    // Cinnamon's switch only enables the schedule, so during the day turning
+    // it "on" did nothing until sunset. Like macOS: the tile shows whether
+    // the screen is warm right now. Turning it on outside the schedule runs
+    // it all day (a manual schedule with equal start and end) and remembers
+    // your schedule; turning it off puts the schedule back, or pauses it
+    // until tomorrow if it's running on schedule.
+    _initNight() {
+        this._nightFile = GLib.build_filenamev([GLib.get_user_state_dir(), "controlcenter", "night-light-schedule.json"]);
+        Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, null,
+            COLOR_NAME, "/org/cinnamon/SettingsDaemon/Color", COLOR_NAME, null, (o, res) => {
+                try {
+                    this._color = Gio.DBusProxy.new_for_bus_finish(res);
+                    this._watch(this._color, ["g-properties-changed"], () => this._refreshNight());
+                } catch (e) {}
+                this._refreshNight();
+            });
+    }
+
+    _colorProp(name) {
+        let v = this._color && this._color.get_cached_property(name);
+        return v ? v.unpack() : null;
+    }
+
+    _setColorProp(name, value) {
+        if (!this._color) return;
+        this._color.call("org.freedesktop.DBus.Properties.Set", new GLib.Variant("(ssv)", [COLOR_NAME, name, value]),
+                         Gio.DBusCallFlags.NONE, -1, null, (p, res) => { try { p.call_finish(res); } catch (e) {} });
+    }
+
+    // The schedule we replaced to force it on, while that is still in effect
+    _nightSaved() {
+        let ns = this.nightSettings;
+        if (ns.get_string("night-light-schedule-mode") !== "manual" ||
+            ns.get_double("night-light-schedule-from") !== ns.get_double("night-light-schedule-to")) return null;
+        try { return JSON.parse(new TextDecoder().decode(GLib.file_get_contents(this._nightFile)[1])); } catch (e) { return null; }
+    }
+
+    // Start and end of the schedule in hours (sunset/sunrise in auto mode)
+    _nightWindow() {
+        let ns = this.nightSettings;
+        if (ns.get_string("night-light-schedule-mode") === "auto")
+            return [this._colorProp("Sunset") || 20, this._colorProp("Sunrise") || 6];
+        return [ns.get_double("night-light-schedule-from"), ns.get_double("night-light-schedule-to")];
+    }
+
+    _inNightWindow() {
+        let [from, to] = this._nightWindow();
+        let now = GLib.DateTime.new_now_local();
+        let h = now.get_hour() + now.get_minute() / 60;
+        if (to <= from) to += 24;            // overnight; equal means all day
+        if (h < from) h += 24;
+        return h >= from && h < to;
+    }
+
+    _toggleNight() {
+        let ns = this.nightSettings;
+        if (!this.nightTile.active) {
+            if (ns.get_boolean("night-light-enabled") && this._inNightWindow()) {
+                this._setColorProp("DisabledUntilTomorrow", GLib.Variant.new_boolean(false));   // just paused
+            } else {
+                let saved = { enabled: ns.get_boolean("night-light-enabled"), mode: ns.get_string("night-light-schedule-mode"),
+                              from: ns.get_double("night-light-schedule-from"), to: ns.get_double("night-light-schedule-to") };
+                GLib.mkdir_with_parents(GLib.path_get_dirname(this._nightFile), 0o700);
+                GLib.file_set_contents(this._nightFile, JSON.stringify(saved));
+                ns.set_string("night-light-schedule-mode", "manual");
+                ns.set_double("night-light-schedule-from", 0);
+                ns.set_double("night-light-schedule-to", 0);
+                ns.set_boolean("night-light-enabled", true);
+                this._setColorProp("DisabledUntilTomorrow", GLib.Variant.new_boolean(false));
+            }
+            this.nightTile.set(true, "On", "night-light-symbolic");
+        } else {
+            let saved = this._nightSaved();
+            if (saved) {
+                ns.set_string("night-light-schedule-mode", saved.mode);
+                ns.set_double("night-light-schedule-from", saved.from);
+                ns.set_double("night-light-schedule-to", saved.to);
+                ns.set_boolean("night-light-enabled", saved.enabled);
+                GLib.unlink(this._nightFile);
+            }
+            // back on schedule but inside its hours: don't switch straight on again
+            if (ns.get_boolean("night-light-enabled") && this._inNightWindow())
+                this._setColorProp("DisabledUntilTomorrow", GLib.Variant.new_boolean(true));
+            this.nightTile.set(false, "Off", "night-light-disabled-symbolic");
+        }
     }
 
     _refreshNight() {
-        let on = this.nightSettings.get_boolean("night-light-enabled");
-        let mode = this.nightSettings.get_string("night-light-schedule-mode");
-        this.nightTile.set(on, on ? (mode === "auto" ? "Sunset to sunrise" : mode === "manual" ? "Scheduled" : "On") : "Off",
-            on ? "night-light-symbolic" : "night-light-disabled-symbolic");
+        let ns = this.nightSettings;
+        let auto = ns.get_string("night-light-schedule-mode") === "auto";
+        let [from, to] = this._nightWindow();
+        let hhmm = h => `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+        let active = this._color ? !!this._colorProp("NightLightActive")
+                                 : ns.get_boolean("night-light-enabled") && this._inNightWindow();
+        let sub;
+        if (active) sub = this._nightSaved() ? "On" : auto ? "Until sunrise" : `Until ${hhmm(to)}`;
+        else if (ns.get_boolean("night-light-enabled") && this._colorProp("DisabledUntilTomorrow")) sub = "Off until tomorrow";
+        else if (ns.get_boolean("night-light-enabled")) sub = auto ? "From sunset" : `From ${hhmm(from)}`;
+        else sub = "Off";
+        this.nightTile.set(active, sub, active ? "night-light-symbolic" : "night-light-disabled-symbolic");
     }
 
     _refreshDnd() {
@@ -542,23 +828,44 @@ class ControlCenter extends Applet.TextIconApplet {
         this._refreshDark();
     }
 
+    // ---------- Power Mode (power-profiles-daemon) ----------
+    _initPower() {
+        Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.DO_NOT_AUTO_START, null, PPD_NAME, PPD_PATH, PPD_NAME, null,
+            (o, res) => {
+                try {
+                    this._ppd = Gio.DBusProxy.new_for_bus_finish(res);
+                    this._watch(this._ppd, ["g-properties-changed", "notify::g-name-owner"], () => this._refreshPower());
+                } catch (e) {}
+                this._refreshPower();
+                this._watchPowerSource();
+            });
+    }
+
+    _profile() {
+        let v = this._ppd && this._ppd.get_cached_property("ActiveProfile");
+        return v ? v.unpack() : null;
+    }
+
+    _setProfile(profile) {
+        this._ppd.call("org.freedesktop.DBus.Properties.Set",
+            new GLib.Variant("(ssv)", [PPD_NAME, "ActiveProfile", GLib.Variant.new_string(profile)]),
+            Gio.DBusCallFlags.NONE, -1, null, (p, res) => { try { p.call_finish(res); } catch (e) {} });
+    }
+
     _refreshPower() {
-        run(["powerprofilesctl", "get"], (ok, out) => {
-            let p = out.trim();
-            if (!ok || !p) { this.powerTile.actor.hide(); return; }
-            let label = { "power-saver": "Power Saver", "balanced": "Balanced", "performance": "Performance" }[p] || p;
-            this.powerTile.set(p !== "balanced", label, `power-profile-${p}-symbolic`);
-        });
+        let p = this._profile();
+        this.powerTile.actor.visible = !!p;
+        if (!p) return;
+        let label = { "power-saver": "Power Saver", "balanced": "Balanced", "performance": "Performance" }[p] || p;
+        this.powerTile.set(p !== "balanced", label, `power-profile-${p}-symbolic`);
     }
 
     _cyclePower() {
-        run(["powerprofilesctl", "list"], (ok, out) => {
-            let avail = ["power-saver", "balanced", "performance"].filter(p => out.includes(p + ":"));
-            run(["powerprofilesctl", "get"], (ok2, cur) => {
-                let next = avail[(avail.indexOf(cur.trim()) + 1) % avail.length];
-                run(["powerprofilesctl", "set", next], () => this._refreshPower());
-            });
-        });
+        let list = this._ppd && this._ppd.get_cached_property("Profiles");
+        if (!list) return;
+        let have = list.recursiveUnpack().map(d => d.Profile);
+        let avail = ["power-saver", "balanced", "performance"].filter(p => have.includes(p));
+        this._setProfile(avail[(avail.indexOf(this._profile()) + 1) % avail.length]);
     }
 
     // ---------- sliders ----------
@@ -788,26 +1095,6 @@ class ControlCenter extends Applet.TextIconApplet {
         });
     }
 
-    _refreshWifiList(rescan) {
-        // Ask the radio directly; the tile state may not have loaded yet
-        run(["nmcli", "-t", "-f", "WIFI", "radio"], (ok, out) => {
-            if (out.trim() !== "enabled") { this._fillWifiList(null); return; }
-            run(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", rescan ? "auto" : "no"], (ok2, out2) => {
-                let seen = new Set();
-                // Sort first so the in-use access point wins when one SSID has several APs
-                let nets = out2.split("\n").filter(l => l.trim()).map(nmSplit)
-                    .sort((a, b) => (b[0] === "*") - (a[0] === "*") || Number(b[2]) - Number(a[2]))
-                    .filter(f => f[1] && !seen.has(f[1]) && seen.add(f[1]))
-                    .slice(0, 12)
-                    .map(([inUse, ssid, signal, sec]) => ({
-                        inUse: inUse === "*", ssid,
-                        icon: `network-wireless-signal-${this._signalName(Number(signal))}${sec && sec !== "--" ? "-secure" : ""}-symbolic`,
-                    }));
-                this._fillWifiList(nets);
-            });
-        });
-    }
-
     _fillWifiList(nets) {
         let sub = this.wifiMenu.menu;
         this._setList(sub, JSON.stringify(nets), () => {
@@ -819,10 +1106,9 @@ class ControlCenter extends Applet.TextIconApplet {
                     if (n.inUse) return;
                     this.wifiTile.set(true, "Connecting…");
                     // Works for saved/open networks; new secured ones need a password, so open settings
-                    run(["nmcli", "dev", "wifi", "connect", n.ssid], (ok) => {
+                    run(["nmcli", "dev", "wifi", "connect", n.ssid], ok => {
                         if (!ok) Util.spawnCommandLine("cinnamon-settings network");
-                        this._refreshWifi();
-                        this._refreshWifiList(false);
+                        this._updateWifi();
                     });
                 });
                 sub.addMenuItem(item);
@@ -831,28 +1117,21 @@ class ControlCenter extends Applet.TextIconApplet {
         });
     }
 
-    _refreshBtList() {
-        run(["sh", "-c", "bluetoothctl show | grep -q 'Powered: yes' && echo ON; echo ---; bluetoothctl devices Paired; echo ---; bluetoothctl devices Connected"], (ok, out) => {
-            let [power, paired, connected] = out.split("---");
-            let parse = s => (s || "").split("\n").filter(l => l.startsWith("Device ")).map(l => {
-                let p = l.split(" ");
-                return { mac: p[1], name: p.slice(2).join(" ") };
-            });
-            let conn = new Set(parse(connected).map(d => d.mac));
-            let devs = /ON/.test(power) ? parse(paired).map(d => ({ ...d, on: conn.has(d.mac) })) : null;
-            let sub = this.btMenu.menu;
-            this._setList(sub, JSON.stringify(devs), () => {
-                if (!devs) sub.addMenuItem(new PopupMenu.PopupMenuItem("Bluetooth is off", { reactive: false }));
-                else if (!devs.length) sub.addMenuItem(new PopupMenu.PopupMenuItem("No paired devices", { reactive: false }));
-                for (let d of devs || []) {
-                    let item = new PopupMenu.PopupSwitchMenuItem(d.name, d.on);
-                    item.connect("toggled", (it, state) => {
-                        run(["bluetoothctl", state ? "connect" : "disconnect", d.mac], () => { this._refreshBt(); this._refreshBtList(); });
-                    });
-                    sub.addMenuItem(item);
-                }
-                this._addSettingsLink(sub, "Bluetooth settings…", "blueman-manager");
-            });
+    _fillBtList(devs) {
+        let sub = this.btMenu.menu;
+        this._setList(sub, JSON.stringify(devs), () => {
+            if (!devs) sub.addMenuItem(new PopupMenu.PopupMenuItem("Bluetooth is off", { reactive: false }));
+            else if (!devs.length) sub.addMenuItem(new PopupMenu.PopupMenuItem("No paired devices", { reactive: false }));
+            for (let d of devs || []) {
+                let item = new PopupMenu.PopupSwitchMenuItem(d.name, d.on);
+                item.connect("toggled", (it, state) => {
+                    let dev = this._bluez && this._bluez.get_interface(d.path, "org.bluez.Device1");
+                    if (dev) dev.call(state ? "Connect" : "Disconnect", null, Gio.DBusCallFlags.NONE, 30000, null,
+                                      (p, res) => { try { p.call_finish(res); } catch (e) { this._updateBt(); } });
+                });
+                sub.addMenuItem(item);
+            }
+            this._addSettingsLink(sub, "Bluetooth settings…", "blueman-manager");
         });
     }
 
@@ -898,7 +1177,7 @@ class ControlCenter extends Applet.TextIconApplet {
     // Power Saver on battery; back to the previous mode when plugged in.
     // Only reacts to plug/unplug, so a mode picked by hand is left alone.
     _watchPowerSource() {
-        if (!GLib.find_program_in_path("powerprofilesctl")) return;
+        if (!this._profile()) return;
         new UPowerProxy(Gio.DBus.system, "org.freedesktop.UPower", "/org/freedesktop/UPower", (proxy, error) => {
             if (error) return;
             this._upower = proxy;
@@ -908,14 +1187,10 @@ class ControlCenter extends Applet.TextIconApplet {
                 if (onBattery === this._onBattery) return;
                 this._onBattery = onBattery;
                 if (onBattery) {
-                    run(["powerprofilesctl", "get"], (ok, out) => {
-                        this._profileOnAC = out.trim() || "balanced";
-                        if (this._profileOnAC !== "power-saver")
-                            run(["powerprofilesctl", "set", "power-saver"], () => this._refreshPower());
-                    });
+                    this._profileOnAC = this._profile() || "balanced";
+                    if (this._profileOnAC !== "power-saver") this._setProfile("power-saver");
                 } else {
-                    let back = this._profileOnAC || "balanced";
-                    run(["powerprofilesctl", "set", back], () => this._refreshPower());
+                    this._setProfile(this._profileOnAC || "balanced");
                 }
                 this._updatePanelBattery();
             });
@@ -998,9 +1273,8 @@ class ControlCenter extends Applet.TextIconApplet {
         this.menu.connect("open-state-changed", (m, open) => { if (!open) tip.hide(); });
     }
 
+    // Cheap reads only: everything here is a setting, a file in /sys or an async D-Bus call
     _refreshAll() {
-        this._refreshWifi();
-        this._refreshBt();
         this._refreshNight();
         this._refreshDnd();
         this._refreshDark();
@@ -1008,9 +1282,8 @@ class ControlCenter extends Applet.TextIconApplet {
         this.bright.refresh();
         this.kbd.refresh();
         this._refreshBattery();
-        this._refreshWifiList(true);
-        this._refreshBtList();
         this._refreshPhone();
+        this._scanWifi();
     }
 }
 
