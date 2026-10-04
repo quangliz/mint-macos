@@ -26,12 +26,9 @@ void main() {
   cogl_color_out = sum / wsum;
 }`;
 
-const BLUR_V_MASK = `
+const BLUR_V = `
 uniform sampler2D tex;
 uniform float dy;
-uniform float size_w;
-uniform float size_h;
-uniform float radius;
 void main() {
   vec2 uv = cogl_tex_coord_in[0].st;
   vec4 sum = vec4(0.0);
@@ -46,10 +43,24 @@ void main() {
   // vibrancy: a little extra saturation
   float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
   col.rgb = mix(vec3(luma), col.rgb, 1.25);
+  cogl_color_out = col;
+}`;
 
-  // rounded-rectangle mask (anti-aliased)
-  vec2 sz = vec2(size_w, size_h);
-  vec2 q = abs(uv * sz - sz * 0.5) - (sz * 0.5 - vec2(radius));
+// Rounded corners, cut in screen pixels. The blur passes render into
+// off-screen buffers a little larger than the panel, so texture coordinates
+// can't locate its edges; gl_FragCoord in the final, on-screen pass can.
+const MASK = `
+uniform sampler2D tex;
+uniform float rx;
+uniform float ry;
+uniform float rw;
+uniform float rh;
+uniform float radius;
+uniform float stage_h;
+void main() {
+  vec4 col = texture2D(tex, cogl_tex_coord_in[0].st);
+  vec2 p = vec2(gl_FragCoord.x, stage_h - gl_FragCoord.y);   // GL origin is bottom-left
+  vec2 q = abs(p - vec2(rx + rw * 0.5, ry + rh * 0.5)) - (vec2(rw, rh) * 0.5 - vec2(radius));
   float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
   cogl_color_out = col * clamp(0.5 - d, 0.0, 1.0);
 }`;
@@ -67,8 +78,12 @@ var GlassBackdrop = class GlassBackdrop {
         this._ok = false;
         try {
             this.layer = new Clutter.Actor({ clip_to_allocation: true, reactive: false });
+            // Clutter runs effects inside-out: the first one added is the
+            // outermost and draws to the screen, so the mask goes first.
+            this._fxMask = this._effect(MASK);
             this._fxH = this._effect(BLUR_H);
-            this._fxV = this._effect(BLUR_V_MASK);
+            this._fxV = this._effect(BLUR_V);
+            this.layer.add_effect(this._fxMask);
             this.layer.add_effect(this._fxH);
             this.layer.add_effect(this._fxV);
 
@@ -79,8 +94,12 @@ var GlassBackdrop = class GlassBackdrop {
             this._connect(menu.actor, "notify::x", () => this._queueSync());
             this._connect(menu.actor, "notify::y", () => this._queueSync());
 
-            menu.actor.style = "background-color: transparent; box-shadow: none; border: none; padding: 0;" +
+            // Cinnamon rewrites the menu's style on every open (max-height/width),
+            // so re-append our transparent frame whenever that happens.
+            this._frameStyle = "background-color: transparent; box-shadow: none; border: none; padding: 0;" +
                                (params.gap ? ` margin-top: ${params.gap}px; margin-right: ${params.gap}px;` : "");
+            this._connect(menu.actor, "notify::style", () => this._keepFrameStyle());
+            this._keepFrameStyle();
             this._ok = true;
         } catch (e) {
             global.logError("glass: disabled, falling back to the theme background: " + e);
@@ -89,6 +108,12 @@ var GlassBackdrop = class GlassBackdrop {
     }
 
     get active() { return this._ok; }
+
+    _keepFrameStyle() {
+        let style = this.menu.actor.style || "";
+        if (!style.includes(this._frameStyle))
+            this.menu.actor.style = (style ? style + " " : "") + this._frameStyle;
+    }
 
     _connect(obj, signal, fn) {
         this._signals.push([obj, obj.connect(signal, fn)]);
@@ -110,9 +135,10 @@ var GlassBackdrop = class GlassBackdrop {
             this._h = h;
             this._fxH.set_uniform_value("dx", f(1 / w));
             this._fxV.set_uniform_value("dy", f(1 / h));
-            this._fxV.set_uniform_value("size_w", f(w));
-            this._fxV.set_uniform_value("size_h", f(h));
-            this._fxV.set_uniform_value("radius", f(this.radius));
+            this._fxMask.set_uniform_value("rw", f(w));
+            this._fxMask.set_uniform_value("rh", f(h));
+            this._fxMask.set_uniform_value("radius", f(this.radius));
+            this._fxMask.set_uniform_value("stage_h", f(global.stage.height));
             this._queueSync();
         }
     }
@@ -145,7 +171,7 @@ var GlassBackdrop = class GlassBackdrop {
 
     // Position updates run after layout, never inside an allocation pass
     _queueSync() {
-        if (this._syncId || !this._clones.length) return;
+        if (this._syncId || !this.layer) return;
         this._syncId = GLib.idle_add(GLib.PRIORITY_HIGH_IDLE, () => {
             this._syncId = 0;
             this._sync();
@@ -156,6 +182,8 @@ var GlassBackdrop = class GlassBackdrop {
     _sync() {
         if (!this.layer) return;
         let [lx, ly] = this.layer.get_transformed_position();
+        this._fxMask.set_uniform_value("rx", f(lx));
+        this._fxMask.set_uniform_value("ry", f(ly));
         for (let entry of this._clones) {
             if (!entry.src) continue;
             let [sx, sy] = entry.src.get_transformed_position();
