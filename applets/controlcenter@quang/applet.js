@@ -81,6 +81,12 @@ function run(argv, callback) {
     }
 }
 
+function iconThemeExists(name) {
+    for (let dir of [GLib.get_home_dir() + "/.local/share/icons", GLib.get_home_dir() + "/.icons", "/usr/share/icons"])
+        if (GLib.file_test(`${dir}/${name}/index.theme`, GLib.FileTest.EXISTS)) return true;
+    return false;
+}
+
 function themeExists(name) {
     for (let dir of [GLib.get_home_dir() + "/.themes", GLib.get_home_dir() + "/.local/share/themes", "/usr/share/themes"])
         if (GLib.file_test(`${dir}/${name}`, GLib.FileTest.IS_DIR)) return true;
@@ -528,7 +534,11 @@ class ControlCenter extends Applet.TextIconApplet {
         this.bright.actor.hide();
         this.menu.addMenuItem(this.bright);
         Interfaces.getDBusProxyAsync("org.cinnamon.SettingsDaemon.Power.Screen", (proxy, error) => {
+    // Theme name for the other mode. Handles Mint-Y ("Mint-Y-Aqua" <-> "Mint-Y-Dark-Aqua")
+    // and themes with Light/Dark variants ("WhiteSur-Light" <-> "WhiteSur-Dark").
             if (error) return;
+        if (!/^Mint-/.test(name) && /-(Light|Dark)(\b|-)/.test(name))
+            return name.replace(/-(Light|Dark)(\b|-)/, (m, v, rest) => (wantDark ? "-Dark" : "-Light") + rest);
             this.brightProxy = proxy;
             proxy.GetPercentageRemote((b, err) => {
                 if (err) return;
@@ -548,6 +558,11 @@ class ControlCenter extends Applet.TextIconApplet {
         // Output volume via the PulseAudio/PipeWire mixer
         this.vol = this._makeSlider("audio-volume-high-symbolic");
         this.menu.addMenuItem(this.vol);
+        // icon sets with light/dark variants (e.g. WhiteSur-light / WhiteSur-dark)
+        let icons = this.ifaceSettings.get_string("icon-theme");
+        let m = icons.match(/^(.*)-(light|dark)$/i);
+        if (m && iconThemeExists(`${m[1]}-${wantDark ? "dark" : "light"}`))
+            this.ifaceSettings.set_string("icon-theme", `${m[1]}-${wantDark ? "dark" : "light"}`);
         this.vol.button.connect("clicked", () => { if (this._sink) this._sink.change_is_muted(!this._sink.is_muted); });
         this.vol.connect("value-changed", (s, v) => {
             if (!this._sink) return;

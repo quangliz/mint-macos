@@ -75,10 +75,10 @@ mode (shown only when `nvidia-smi` is available). It never wakes a sleeping GPU.
 - Notifications as rounded cards (app icon, title, message, relative time); click to open the app, hover for ✕, **Clear All**
 - Calendar card; click a day to see its events, with **Open Calendar** for GNOME Calendar
 - Shortcuts: **Super+N** to open, **Shift+Super+C** to clear all
-
 - Several notifications from one app collapse into a stack ("+2"); click to expand, with **Show less** and a per-app clear button
 - **Up Next** card above the calendar with your next events this week
 - No badge next to the clock (like macOS)
+
 ### Dock
 Plank at the bottom with zoom on hover, running-app dots and a rounded dark
 theme. Right-click an icon → **Keep in Dock** to pin it.
@@ -126,6 +126,20 @@ item. Only the compute parts of the driver are loaded, so running graphical
 apps on the NVIDIA GPU ("Run with NVIDIA") isn't available in this setup.
 Undo with `sudo ./gpu/uninstall.sh` and a reboot.
 
+## Optional: macOS look (WhiteSur)
+
+```bash
+./theme/install.sh          # WhiteSur theme, icons, cursor, Inter font, lock screen clock
+sudo ./login/install.sh     # login screen: blurred wallpaper, WhiteSur, Inter
+```
+
+`theme/install.sh` downloads [WhiteSur](https://github.com/vinceliuice/WhiteSur-gtk-theme)
+(theme, icons and cursors) from its author's GitHub, builds it into `~/.themes`
+and `~/.local/share/icons`, and switches Cinnamon, apps and window borders to
+it, with the Inter font. The lock screen gets a large fixed clock above a
+macOS-style date. The Dark Mode tile switches WhiteSur light/dark (theme and
+icons together). Undo with `./theme/uninstall.sh` and `sudo ./login/uninstall.sh`.
+
 ## Layout of this repo
 
 ```
@@ -135,6 +149,8 @@ plank/          Dock theme
 ulauncher/      Search theme and the clipboard-history extension
 bin/            Clipboard recorder, screenshot tool (snip), shortcut helper
 gpu/            Optional: NVIDIA GPU off until needed (gpu on/off)
+theme/          Optional: WhiteSur theme, icons, cursor, Inter font, lock screen
+login/          Optional: macOS-style login screen (sudo)
 ```
 
 ## Notes
