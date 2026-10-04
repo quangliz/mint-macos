@@ -40,7 +40,8 @@ if [[ "${XDG_CURRENT_DESKTOP:-}" != *Cinnamon* ]]; then
     echo "This needs a Cinnamon desktop session (found: ${XDG_CURRENT_DESKTOP:-none})." >&2
     exit 1
 fi
-if ! gsettings list-schemas | grep -qx org.cinnamon; then
+# (not "list-schemas | grep -q": grep quitting early fails the pipe under pipefail)
+if ! gsettings get org.cinnamon enabled-applets >/dev/null 2>&1; then
     echo "Cinnamon settings not found; is this Linux Mint Cinnamon?" >&2
     exit 1
 fi
