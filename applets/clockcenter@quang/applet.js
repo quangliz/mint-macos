@@ -56,6 +56,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
                 }
             );
             this.menu.addActor(box);
+            this._buildUpNext(box);
 
             this.event_list = this.events_manager.get_event_list();
             this.event_list.connect("launched-calendar", Lang.bind(this.menu, this.menu.toggle));
@@ -195,6 +196,65 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         if (this.keyClear) Main.keybindingManager.addXletHotKey(this, "notification-clear", this.keyClear, Lang.bind(this, this._clearNotifications));
     }
 
+    // ---------- Up Next: the next few events this week ----------
+    _buildUpNext(calendarBox) {
+        this._upNext = new St.BoxLayout({ vertical: true, style_class: "ccn-calendar-card ccn-upnext" });
+        this.menu.box.insert_child_below(this._upNext, calendarBox);
+        this.events_manager.connect("events-updated", () => this._renderUpNext());
+        this.events_manager.connect("events-manager-ready", () => this._renderUpNext());
+        this.events_manager.connect("has-calendars-changed", () => this._renderUpNext());
+        this.menu.connect("open-state-changed", (m, open) => { if (open) this._renderUpNext(); });
+        this._renderUpNext();
+    }
+
+    _renderUpNext() {
+        if (!this._upNext) return;
+        this._upNext.destroy_all_children();
+        if (!this.events_manager.is_active()) { this._upNext.hide(); return; }
+        this._upNext.show();
+        this._upNext.add_child(new St.Label({ text: _("Up Next"), style_class: "ccn-upnext-title" }));
+
+        // events_by_date covers the month on screen plus its edge weeks; the
+        // calendar resets to today whenever the panel opens
+        let now = GLib.DateTime.new_now_local();
+        let horizon = now.add_days(7);
+        let seen = new Set(), events = [];
+        for (let key in this.events_manager.events_by_date) {
+            for (let ev of Object.values(this.events_manager.events_by_date[key]._events)) {
+                if (seen.has(ev.id)) continue;
+                seen.add(ev.id);
+                if (ev.end.compare(now) > 0 && ev.start.compare(horizon) < 0) events.push(ev);
+            }
+        }
+        events.sort((x, y) => x.start.compare(y.start));
+
+        if (!events.length) {
+            this._upNext.add_child(new St.Label({ text: _("No events in the next 7 days"), style_class: "ccn-day-empty" }));
+            return;
+        }
+        let today = EventView.date_only(now);
+        for (let ev of events.slice(0, 3)) {
+            let days = Math.round(EventView.date_only(ev.start).difference(today) / GLib.TIME_SPAN_DAY);
+            let when = days <= 0 ? _("Today") : days === 1 ? _("Tomorrow") : ev.start.format("%a %-d %b");
+            let time = ev.all_day ? _("All day") : ev.start.format("%H:%M") + "–" + ev.end.format("%H:%M");
+            let row = new St.Button({ reactive: true, track_hover: true, style_class: "ccn-event-row", x_fill: true });
+            let box = new St.BoxLayout({ vertical: false, style: "spacing: 10px;" });
+            box.add_child(new St.Widget({ style_class: "ccn-upnext-bar", style: `background-color: ${ev.color || "#1f9ede"};` }));
+            let col = new St.BoxLayout({ vertical: true, x_expand: true });
+            let title = new St.Label({ text: ev.summary || "", style: "font-weight: bold;" });
+            title.clutter_text.ellipsize = imports.gi.Pango.EllipsizeMode.END;
+            col.add_child(title);
+            col.add_child(new St.Label({ text: `${when} · ${time}`, style_class: "ccn-upnext-when" }));
+            box.add_child(col);
+            row.set_child(box);
+            row.connect("clicked", () => {
+                this.menu.close();
+                Util.trySpawn(["gnome-calendar", "--uuid", ev.id], false);
+            });
+            this._upNext.add_child(row);
+        }
+    }
+
     // ---------- Selected day's events (inside the calendar card) ----------
     _buildDayEvents(calbox) {
         calbox.add_actor(new St.Widget({ style_class: "ccn-day-sep" }));
@@ -263,6 +323,11 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this.menu.box.add_style_class_name("ccn");
         // Frosted glass sheet behind the content (ccn-glass styles the sheet itself)
         this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6 });
+        // Switching the Cinnamon theme (e.g. the Dark Mode tile, or WhiteSur)
+        // builds a new St.Theme and silently drops stylesheets added to the old
+        // one, so load ours again whenever that happens.
+        let themeContext = St.ThemeContext.get_for_stage(global.stage);
+        this._themeCtxId = themeContext.connect("changed", () => this._loadStylesheet());
         if (this._glass.active) this.menu.box.add_style_class_name("ccn-glass");
         // Light glass when the Cinnamon theme is light (the Dark Mode tile switches it)
         this._themeSettings = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
@@ -323,11 +388,6 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
     }
 
     _unloadStylesheet() {
-        // Switching the Cinnamon theme (e.g. the Dark Mode tile, or WhiteSur)
-        // builds a new St.Theme and silently drops stylesheets added to the old
-        // one, so load ours again whenever that happens.
-        let themeContext = St.ThemeContext.get_for_stage(global.stage);
-        this._themeCtxId = themeContext.connect("changed", () => this._loadStylesheet());
         try {
             St.ThemeContext.get_for_stage(global.stage).get_theme().unload_stylesheet(this._stylesheet);
         } catch (e) {}
@@ -380,7 +440,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
                              icon_size: symbolic ? 16 : 32 });
     }
 
-    _makeCard(n) {
+    _makeCard(n, opts = {}) {
         let card = new St.Button({ reactive: true, track_hover: true, can_focus: true, style_class: "ccn-card",
                                    x_fill: true, x_expand: true });
         let row = new St.BoxLayout({ vertical: false, x_expand: true, style_class: "ccn-card-row" });
@@ -403,6 +463,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
                                     child: new St.Icon({ icon_name: "window-close-symbolic", icon_type: St.IconType.SYMBOLIC, icon_size: 12 }) });
         close.connect("clicked", () => n.destroy(NotificationDestroyedReason.DISMISSED));
         top.add_child(app);
+        if (opts.more) top.add_child(new St.Label({ text: `+${opts.more}`, style_class: "ccn-card-more" }));
         top.add_child(time);
         top.add_child(close);
         col.add_child(top);
@@ -424,18 +485,63 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         // Show the close button only while hovering, like macOS
         card.connect("notify::hover", () => { close.opacity = card.hover ? 200 : 0; time.visible = !card.hover; });
         card.connect("clicked", () => {
+            if (opts.onClick) { opts.onClick(); return; }
             this.menu.close();
             n._onClicked();
         });
         return card;
     }
 
+    _appKey(n) {
+        return (n.source && n.source.title) || "";
+    }
+
+    // Notifications grouped by app, newest group first. A group of several
+    // shows as a stack until clicked, like macOS.
     _updateNotifications() {
         if (!this._notifBin) return;
+        this._expandedApps = this._expandedApps || new Set();
         this._notifBin.destroy_all_children();
-        let list = this.notifications.slice();
-        if (this.showNewestFirst) list.reverse();
-        for (let n of list) this._notifBin.add_child(this._makeCard(n));
+
+        let groups = new Map();
+        for (let n of this.notifications) {
+            let key = this._appKey(n);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(n);
+        }
+        let newest = list => Math.max(...list.map(n => n._timestamp.getTime()));
+        let ordered = Array.from(groups.entries()).sort((x, y) => newest(y[1]) - newest(x[1]));
+
+        for (let [key, list] of ordered) {
+            list.sort((x, y) => y._timestamp - x._timestamp);
+            if (list.length === 1) {
+                this._notifBin.add_child(this._makeCard(list[0]));
+            } else if (this._expandedApps.has(key)) {
+                let group = new St.BoxLayout({ vertical: true, style_class: "ccn-group" });
+                let header = new St.BoxLayout({ vertical: false, style_class: "ccn-group-header" });
+                header.add_child(new St.Label({ text: key || _("Notifications"), x_expand: true,
+                                                y_align: Clutter.ActorAlign.CENTER, style_class: "ccn-group-title" }));
+                let less = new St.Button({ label: _("Show less"), reactive: true, track_hover: true, style_class: "ccn-pill" });
+                less.connect("clicked", () => { this._expandedApps.delete(key); this._updateNotifications(); });
+                let clear = new St.Button({ reactive: true, track_hover: true, style_class: "ccn-pill",
+                    child: new St.Icon({ icon_name: "window-close-symbolic", icon_type: St.IconType.SYMBOLIC, icon_size: 10 }) });
+                clear.connect("clicked", () => this._clearGroup(key));
+                header.add_child(less);
+                header.add_child(clear);
+                group.add_child(header);
+                for (let n of list) group.add_child(this._makeCard(n));
+                this._notifBin.add_child(group);
+            } else {
+                let stack = new St.BoxLayout({ vertical: true });
+                stack.add_child(this._makeCard(list[0], { more: list.length - 1,
+                    onClick: () => { this._expandedApps.add(key); this._updateNotifications(); } }));
+                stack.add_child(new St.Widget({ style_class: "ccn-stack-layer" }));
+                if (list.length > 2) stack.add_child(new St.Widget({ style_class: "ccn-stack-layer ccn-stack-layer-2" }));
+                this._notifBin.add_child(stack);
+            }
+        }
+        // forget expanded state for apps that have no notifications left
+        for (let key of Array.from(this._expandedApps)) if (!groups.has(key)) this._expandedApps.delete(key);
 
         let count = this.notifications.length;
         this._emptyLabel.visible = count === 0;
@@ -444,6 +550,14 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this._notifScroll.vscrollbar_policy = count > 4 ? St.PolicyType.AUTOMATIC : St.PolicyType.NEVER;
         this._clearBtn.visible = count > 0;
         if (this._calendar) this._updateClockAndDate();
+    }
+
+    _clearGroup(key) {
+        let list = this.notifications.filter(n => this._appKey(n) === key);
+        this.notifications = this.notifications.filter(n => this._appKey(n) !== key);
+        this._expandedApps.delete(key);
+        for (let n of list) n.destroy(NotificationDestroyedReason.DISMISSED);
+        this._updateNotifications();
     }
 
     _clearNotifications() {
@@ -555,9 +669,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
             this.go_home_button.set_style_class_name("calendar-today-home-button-enabled");
         }
 
-        // Unread badge before the clock, e.g. "● 3   Sun 4 Oct  02:10"
-        let unread = this.notifications ? this.notifications.length : 0;
-        this.set_applet_label(unread ? `● ${unread}   ${label_string}` : label_string);
+        this.set_applet_label(label_string);
 
         let dateFormattedTooltip = this.clock.get_clock_for_format(DATE_FORMAT_FULL).capitalize();
         if (this.use_custom_format) {
@@ -595,6 +707,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         Main.keybindingManager.removeXletHotKey(this, "calendar-open");
         Main.keybindingManager.removeXletHotKey(this, "notification-open");
         Main.keybindingManager.removeXletHotKey(this, "notification-clear");
+        if (this._themeCtxId) St.ThemeContext.get_for_stage(global.stage).disconnect(this._themeCtxId);
         this._unloadStylesheet();
         if (this._glass) this._glass.destroy();
         if (this._themeId) this._themeSettings.disconnect(this._themeId);
@@ -634,4 +747,3 @@ function main(metadata, orientation, panel_height, instance_id) {
     CinnamonCalendarApplet.prototype._meta_path = metadata.path;
     return new CinnamonCalendarApplet(orientation, panel_height, instance_id);
 }
-        if (this._themeCtxId) St.ThemeContext.get_for_stage(global.stage).disconnect(this._themeCtxId);

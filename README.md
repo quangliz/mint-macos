@@ -76,6 +76,9 @@ mode (shown only when `nvidia-smi` is available). It never wakes a sleeping GPU.
 - Calendar card; click a day to see its events, with **Open Calendar** for GNOME Calendar
 - Shortcuts: **Super+N** to open, **Shift+Super+C** to clear all
 
+- Several notifications from one app collapse into a stack ("+2"); click to expand, with **Show less** and a per-app clear button
+- **Up Next** card above the calendar with your next events this week
+- No badge next to the clock (like macOS)
 ### Dock
 Plank at the bottom with zoom on hover, running-app dots and a rounded dark
 theme. Right-click an icon → **Keep in Dock** to pin it.

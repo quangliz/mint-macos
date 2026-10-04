@@ -221,3 +221,37 @@
 .ccn.ccn-light .calendar-other-month-day { color: rgba(0, 0, 0, 0.25); }
 .ccn.ccn-light .calendar-today,
 .ccn.ccn-light .calendar-today:hover { color: #ffffff; }
+
+/* ---------- Grouped notifications ---------- */
+.ccn-group { spacing: 6px; }
+.ccn-group-header { padding: 0 4px; spacing: 6px; }
+.ccn-group-title { font-weight: bold; font-size: 0.95em; }
+.ccn-card-more {
+  font-size: 0.75em;
+  font-weight: bold;
+  padding: 0 6px;
+  margin-right: 6px;
+  border-radius: 99px;
+  color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.ccn-light .ccn-card-more { color: rgba(0, 0, 0, 0.7); background-color: rgba(0, 0, 0, 0.08); }
+/* the cards peeking out under a collapsed stack */
+.ccn-stack-layer {
+  height: 6px;
+  margin: 0 10px;
+  border-radius: 0 0 12px 12px;
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-width: 0;
+}
+.ccn-stack-layer-2 { margin: 0 20px; height: 5px; background-color: rgba(255, 255, 255, 0.05); }
+.ccn-light .ccn-stack-layer { background-color: rgba(255, 255, 255, 0.45); border-color: rgba(255, 255, 255, 0.7); }
+.ccn-light .ccn-stack-layer-2 { background-color: rgba(255, 255, 255, 0.30); }
+
+/* ---------- Up Next ---------- */
+.ccn-upnext { margin: 0 14px 8px 14px; spacing: 4px; }
+.ccn-upnext-title { font-weight: bold; font-size: 0.95em; padding: 0 2px 2px 2px; }
+.ccn-upnext-bar { width: 4px; border-radius: 2px; }
+.ccn-upnext-when { font-size: 0.85em; color: rgba(255, 255, 255, 0.6); }
+.ccn-light .ccn-upnext-when { color: rgba(0, 0, 0, 0.55); }
