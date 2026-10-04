@@ -96,7 +96,8 @@ var GlassBackdrop = class GlassBackdrop {
 
             // Cinnamon rewrites the menu's style on every open (max-height/width),
             // so re-append our transparent frame whenever that happens.
-            this._frameStyle = "background-color: transparent; box-shadow: none; border: none; padding: 0;" +
+            // border-image too: some themes (e.g. WhiteSur) draw the menu frame as an image
+            this._frameStyle = "background-color: transparent; box-shadow: none; border: none; border-image: none; padding: 0;" +
                                (params.gap ? ` margin-top: ${params.gap}px; margin-right: ${params.gap}px;` : "");
             this._connect(menu.actor, "notify::style", () => this._keepFrameStyle());
             this._keepFrameStyle();
