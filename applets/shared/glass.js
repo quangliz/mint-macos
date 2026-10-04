@@ -45,6 +45,7 @@ void main() {
 const BLUR_V = `
 uniform sampler2D tex;
 uniform float dy;
+uniform float light;
 void main() {
   vec2 uv = cogl_tex_coord_in[0].st;
   vec4 sum = vec4(0.0);
@@ -59,6 +60,20 @@ void main() {
   // vibrancy: a little extra saturation
   float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
   col.rgb = mix(vec3(luma), col.rgb, 1.25);
+
+  // Keep text readable whatever is behind the glass, like macOS: dark glass
+  // darkens bright areas (a white window) down to a cap and leaves dark ones
+  // nearly as they are; light glass does the opposite. (colours are
+  // premultiplied, but the backdrop is opaque so alpha is 1)
+  col.rgb = clamp(col.rgb, 0.0, 1.0);
+  luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+  if (light > 0.5) {
+    col.rgb = 1.0 - (1.0 - col.rgb) * min(1.0, 0.22 / max(1.0 - luma, 0.001));
+    col.rgb = mix(col.rgb, vec3(0.96, 0.96, 0.97), 0.15);
+  } else {
+    col.rgb *= min(1.0, 0.26 / max(luma, 0.001));
+    col.rgb = mix(col.rgb, vec3(0.07, 0.07, 0.09), 0.15);
+  }
   cogl_color_out = col;
 }`;
 
@@ -96,10 +111,11 @@ var GlassBackdrop = class GlassBackdrop {
         this._syncId = 0;
         this._ok = false;
         this._theme = new Gio.Settings({ schema_id: "org.cinnamon.theme" });
-        if (params.onTheme) {
-            this._themeId = this._theme.connect("changed::name", () => params.onTheme(this.light));
-            params.onTheme(this.light);
-        }
+        this._themeId = this._theme.connect("changed::name", () => {
+            this._setMode();
+            if (params.onTheme) params.onTheme(this.light);
+        });
+        if (params.onTheme) params.onTheme(this.light);
         try {
             this.layer = new Clutter.Actor({ clip_to_allocation: true, reactive: false });
             // Clutter runs effects inside-out: the first one added is the
@@ -110,6 +126,7 @@ var GlassBackdrop = class GlassBackdrop {
             this.layer.add_effect(this._fxMask);
             this.layer.add_effect(this._fxH);
             this.layer.add_effect(this._fxV);
+            this._setMode();
 
             menu._boxWrapper.insert_child_below(this.layer, menu.box);
             this._connect(menu._boxWrapper, "allocate", (actor, box, flags) => this._allocate(box, flags));
@@ -141,6 +158,11 @@ var GlassBackdrop = class GlassBackdrop {
     get active() { return this._ok; }
 
     get light() { return !/dark/i.test(this._theme.get_string("name")); }
+
+    // Tell the shader which way to keep the backdrop readable
+    _setMode() {
+        if (this._fxV) this._fxV.set_uniform_value("light", f(this.light ? 1 : 0));
+    }
 
     _keepFrameStyle() {
         let style = this.menu.actor.style || "";
