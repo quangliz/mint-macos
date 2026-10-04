@@ -690,6 +690,8 @@ class ControlCenter extends Applet.TextIconApplet {
     // sibling section first so only one list is open at a time.
     _smoothSubmenu(item, sibling) {
         let sub = item.menu;
+        // The theme paints expanded sections solid; let the glass show through
+        sub.actor.style = "background-color: transparent;";
         let animOn = () => imports.ui.main.wm.desktop_effects_menus;
         let setArrow = p => { if (sub._arrow) sub._arrow.rotation_angle_z = p * 90; };
         sub.open = (animate) => {
@@ -752,6 +754,11 @@ class ControlCenter extends Applet.TextIconApplet {
         let oldH = animate ? sub.actor.height : 0;
         sub.removeAll();
         build();
+        // The theme indents section items by 2.5em on the left but keeps the
+        // full 1.75em on the right, which widens the panel when expanded.
+        // Keep the indent and trim the right side so the width stays the same.
+        for (let it of sub._getMenuItems())
+            if (it.actor) it.actor.style = "padding-left: 2.5em; padding-right: 1em;";
         if (!animate) return;
         let nat = this._naturalHeight(sub);
         sub.actor.remove_all_transitions();
