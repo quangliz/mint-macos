@@ -21,6 +21,7 @@ fi
 echo "Restoring settings from $BACKUP"
 
 # Stop our background programs
+pkill -f "$HOME/.local/bin/plank-keepalive" 2>/dev/null || true
 pkill -x plank 2>/dev/null || true
 pkill -f "python3 $HOME/.local/bin/cliphist-daemon.py" 2>/dev/null || true
 
@@ -54,7 +55,7 @@ rm -rf "$HOME/.local/share/cinnamon/applets/"{appname,clockcenter,controlcenter,
 rm -rf "$HOME/.local/share/plank/themes/MacStyle"
 rm -rf "$HOME/.config/ulauncher/user-themes/mac-dark"
 rm -rf "$HOME/.local/share/ulauncher/extensions/com.quang.cliphist"
-rm -f "$HOME/.local/bin/cliphist-daemon.py"
+rm -f "$HOME/.local/bin/cliphist-daemon.py" "$HOME/.local/bin/plank-keepalive"
 echo "Clipboard history kept at ~/.local/share/cliphist (delete it if you don't want it)."
 
 # Restart Ulauncher so it drops the extension and theme

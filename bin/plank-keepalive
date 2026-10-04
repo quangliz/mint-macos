@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Run Plank and restart it if it crashes (Plank 0.11 can abort on internal
+# assertions). A normal quit (exit 0) is respected. Stops retrying after 5
+# crashes within a minute. Errors go to ~/.cache/plank.log.
+LOG="$HOME/.cache/plank.log"
+mkdir -p "$(dirname "$LOG")"
+crashes=()
+while true; do
+    echo "--- plank started $(date '+%F %T')" >> "$LOG"
+    plank >> "$LOG" 2>&1
+    code=$?
+    [[ $code -eq 0 ]] && exit 0
+    echo "--- plank exited with code $code at $(date '+%F %T')" >> "$LOG"
+    now=$(date +%s)
+    crashes=("${crashes[@]}" "$now")
+    recent=0
+    for t in "${crashes[@]}"; do (( now - t < 60 )) && ((recent++)); done
+    if (( recent >= 5 )); then
+        echo "--- giving up: 5 crashes within a minute" >> "$LOG"
+        exit 1
+    fi
+    sleep 2
+done

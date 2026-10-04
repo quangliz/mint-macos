@@ -155,13 +155,16 @@ if have plank; then
     dconf write ${P}hide-mode "'none'"
     dconf write ${P}show-dock-item false
     dconf write ${P}tooltips-enabled true
+    # Plank 0.11 can crash on internal assertions; this wrapper restarts it
+    mkdir -p "$HOME/.local/bin"
+    install -m 755 "$REPO/bin/plank-keepalive" "$HOME/.local/bin/plank-keepalive"
     mkdir -p "$AUTOSTART"
     cat > "$AUTOSTART/plank.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Plank
-Comment=macOS-style dock
-Exec=plank
+Comment=macOS-style dock (restarted automatically if it crashes)
+Exec=$HOME/.local/bin/plank-keepalive
 Icon=plank
 X-GNOME-Autostart-enabled=true
 EOF
@@ -253,8 +256,11 @@ note "Super+Space search · Ctrl+Space keyboard · Ctrl+Up/Down Mission Control 
 
 # ---------------------------------------------------------------- start things now
 step "Starting the dock, search and clipboard recorder"
-pgrep -x plank >/dev/null && pkill -x plank || true
-have plank && (setsid plank >/dev/null 2>&1 &)
+# Stop the wrapper first, or it would restart the Plank we are about to kill
+pkill -f "$HOME/.local/bin/plank-keepalive" 2>/dev/null || true
+pkill -x plank 2>/dev/null || true
+sleep 1
+have plank && (setsid "$HOME/.local/bin/plank-keepalive" >/dev/null 2>&1 &)
 if have ulauncher; then
     pgrep -x ulauncher >/dev/null && pkill -x ulauncher || true
     sleep 1
