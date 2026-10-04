@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""set-shortcut NAME COMMAND BINDING... — add or update a Cinnamon custom shortcut.
+
+Matches an existing shortcut by its name, so running it again updates it
+instead of adding a duplicate.
+"""
+import ast
+import subprocess
+import sys
+
+BASE = "/org/cinnamon/desktop/keybindings/custom-keybindings/"
+
+
+def get_list():
+    out = subprocess.check_output(["gsettings", "get", "org.cinnamon.desktop.keybindings", "custom-list"], text=True)
+    return ast.literal_eval(out.strip().replace("@as ", ""))
+
+
+def read(key):
+    return subprocess.run(["dconf", "read", key], capture_output=True, text=True).stdout.strip()
+
+
+def main():
+    if len(sys.argv) < 4:
+        sys.exit(__doc__)
+    name, command, bindings = sys.argv[1], sys.argv[2], sys.argv[3:]
+    names = get_list()
+    slot = next((n for n in names if read(BASE + n + "/name") == repr(name)), None)
+    if slot is None:
+        i = 0
+        while f"custom{i}" in names:
+            i += 1
+        slot = f"custom{i}"
+        names.append(slot)
+    for key, value in (("name", repr(name)), ("command", repr(command)), ("binding", repr(bindings))):
+        subprocess.run(["dconf", "write", BASE + slot + "/" + key, value], check=True)
+    subprocess.run(["gsettings", "set", "org.cinnamon.desktop.keybindings", "custom-list", repr(names)], check=True)
+    print(f"{slot}: {name} -> {', '.join(bindings)}")
+
+
+if __name__ == "__main__":
+    main()

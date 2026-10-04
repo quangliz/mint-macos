@@ -52,6 +52,7 @@ mkdir -p "$BACKUP"
 dconf dump /org/cinnamon/ > "$BACKUP/org-cinnamon.dconf"
 dconf dump /net/launchpad/plank/ > "$BACKUP/plank.dconf" 2>/dev/null || true
 gsettings get org.freedesktop.ibus.general.hotkey triggers > "$BACKUP/ibus-triggers.txt" 2>/dev/null || true
+gsettings get org.gnome.desktop.wm.preferences button-layout > "$BACKUP/gnome-button-layout.txt" 2>/dev/null || true
 [[ -f "$HOME/.config/ulauncher/settings.json" ]] && cp "$HOME/.config/ulauncher/settings.json" "$BACKUP/ulauncher-settings.json"
 mkdir -p "$BACKUP/autostart"
 for f in plank.desktop ulauncher.desktop cliphist.desktop; do
@@ -66,6 +67,8 @@ if [[ $INSTALL_PACKAGES -eq 1 ]]; then
     need=()
     have plank || need+=(plank)
     have gnome-calendar || need+=(gnome-calendar)
+    have nemo-preview || need+=(nemo-preview)          # Quick Look: Space in Files
+    have gnome-screenshot || need+=(gnome-screenshot)  # used by "snip"
     if ! have ulauncher; then
         note "adding the official Ulauncher PPA (ppa:agornostal/ulauncher)"
         sudo add-apt-repository -y ppa:agornostal/ulauncher
@@ -75,7 +78,7 @@ if [[ $INSTALL_PACKAGES -eq 1 ]]; then
         sudo apt-get update
         sudo apt-get install -y "${need[@]}"
     else
-        note "plank, ulauncher and gnome-calendar are already installed"
+        note "all needed packages are already installed"
     fi
 else
     step "Skipping packages (--no-packages)"
@@ -231,30 +234,26 @@ gsettings set org.cinnamon.desktop.keybindings.wm switch-to-workspace-up "['<Con
 # Hot corners: bottom-left = Mission Control, bottom-right = Show Desktop
 gsettings set org.cinnamon hotcorner-layout "['expo:false:0', 'scale:false:0', 'scale:true:100', 'desktop:true:100']"
 
-# Super+Space -> ulauncher-toggle, as a Cinnamon custom shortcut (reuse ours if present)
-python3 - <<'PY'
-import ast, subprocess
-def get(schema, key):
-    return ast.literal_eval(subprocess.check_output(["gsettings", "get", schema, key], text=True).strip().replace("@as ", ""))
-base = "/org/cinnamon/desktop/keybindings/custom-keybindings/"
-names = get("org.cinnamon.desktop.keybindings", "custom-list")
-mine = None
-for n in names:
-    cmd = subprocess.run(["dconf", "read", base + n + "/command"], capture_output=True, text=True).stdout.strip()
-    if cmd == "'ulauncher-toggle'":
-        mine = n
-if mine is None:
-    i = 0
-    while f"custom{i}" in names:
-        i += 1
-    mine = f"custom{i}"
-    names.append(mine)
-subprocess.run(["dconf", "write", base + mine + "/name", "'Ulauncher (Spotlight)'"], check=True)
-subprocess.run(["dconf", "write", base + mine + "/command", "'ulauncher-toggle'"], check=True)
-subprocess.run(["dconf", "write", base + mine + "/binding", "['<Super>space']"], check=True)
-subprocess.run(["gsettings", "set", "org.cinnamon.desktop.keybindings", "custom-list", str(names)], check=True)
-PY
+# Custom shortcuts go through bin/set-shortcut, which updates an existing
+# shortcut of the same name instead of adding a duplicate.
+"$REPO/bin/set-shortcut" "Ulauncher (Spotlight)" "ulauncher-toggle" "<Super>space" >/dev/null
 note "Super+Space search · Ctrl+Space keyboard · Ctrl+Up/Down Mission Control · bottom corners"
+
+# Windows-style screenshots: copied to the clipboard and saved to Pictures/Screenshots
+mkdir -p "$HOME/.local/bin"
+install -m 755 "$REPO/bin/snip" "$HOME/.local/bin/snip"
+for k in screenshot screenshot-clip window-screenshot window-screenshot-clip area-screenshot area-screenshot-clip; do
+    gsettings set org.cinnamon.desktop.keybindings.media-keys "$k" "[]"   # free the PrtSc keys
+done
+"$REPO/bin/set-shortcut" "Screenshot: area (snip)" "$HOME/.local/bin/snip area" "<Shift><Super>s" "<Shift>Print" >/dev/null
+"$REPO/bin/set-shortcut" "Screenshot: screen" "$HOME/.local/bin/snip screen" "Print" >/dev/null
+"$REPO/bin/set-shortcut" "Screenshot: window" "$HOME/.local/bin/snip window" "<Alt>Print" >/dev/null
+note "Super+Shift+S area · PrtSc screen · Alt+PrtSc window"
+
+# Window buttons on the left, macOS order (Cinnamon title bars and apps that draw their own)
+gsettings set org.cinnamon.desktop.wm.preferences button-layout 'close,minimize,maximize:'
+gsettings set org.gnome.desktop.wm.preferences button-layout 'close,minimize,maximize:'
+note "close · minimize · maximize on the left of each window"
 
 # ---------------------------------------------------------------- start things now
 step "Starting the dock, search and clipboard recorder"
@@ -288,7 +287,8 @@ step "Done"
 cat <<EOF
     Top bar: Mint menu · app name · weather · CPU/RAM/temp/GPU · Control Center (battery %) · clock
     Click the clock for notifications + calendar; the two-switches icon for Control Center.
-    Super+Space: search   ·   'cb' in search: clipboard history
+    Super+Space: search   ·   'cb' in search: clipboard history   ·   Space in Files: Quick Look
+    Super+Shift+S / PrtSc / Alt+PrtSc: screenshots (clipboard + Pictures/Screenshots)
     Undo everything:  $REPO/uninstall.sh
     Your previous settings: $BACKUP
 

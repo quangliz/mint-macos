@@ -37,6 +37,9 @@ fi
 if [[ -s "$BACKUP/ibus-triggers.txt" ]]; then
     gsettings set org.freedesktop.ibus.general.hotkey triggers "$(cat "$BACKUP/ibus-triggers.txt")" || true
 fi
+if [[ -s "$BACKUP/gnome-button-layout.txt" ]]; then
+    gsettings set org.gnome.desktop.wm.preferences button-layout "$(cat "$BACKUP/gnome-button-layout.txt")" || true
+fi
 if [[ -f "$BACKUP/ulauncher-settings.json" ]]; then
     cp "$BACKUP/ulauncher-settings.json" "$HOME/.config/ulauncher/settings.json"
 fi
@@ -55,7 +58,7 @@ rm -rf "$HOME/.local/share/cinnamon/applets/"{appname,clockcenter,controlcenter,
 rm -rf "$HOME/.local/share/plank/themes/MacStyle"
 rm -rf "$HOME/.config/ulauncher/user-themes/mac-dark"
 rm -rf "$HOME/.local/share/ulauncher/extensions/com.quang.cliphist"
-rm -f "$HOME/.local/bin/cliphist-daemon.py" "$HOME/.local/bin/plank-keepalive"
+rm -f "$HOME/.local/bin/cliphist-daemon.py" "$HOME/.local/bin/plank-keepalive" "$HOME/.local/bin/snip"
 echo "Clipboard history kept at ~/.local/share/cliphist (delete it if you don't want it)."
 
 # Restart Ulauncher so it drops the extension and theme

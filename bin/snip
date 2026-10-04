@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# snip — Windows-style screenshots.
+#
+#   snip area     drag to select an area   (Super+Shift+S, Shift+PrtSc)
+#   snip screen   the whole screen          (PrtSc)
+#   snip window   the active window         (Alt+PrtSc)
+#
+# The image is copied to the clipboard and saved to ~/Pictures/Screenshots;
+# a notification lets you open it or show it in its folder.
+set -euo pipefail
+
+mode="${1:-area}"
+pics="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
+dir="$pics/Screenshots"
+mkdir -p "$dir"
+file="$dir/Screenshot $(date '+%Y-%m-%d %H-%M-%S').png"
+
+case "$mode" in
+    area)   gnome-screenshot --area --file="$file" ;;
+    window) gnome-screenshot --window --file="$file" ;;
+    screen) gnome-screenshot --file="$file" ;;
+    *) sed -n '2,9p' "$0"; exit 1 ;;
+esac
+
+# Esc while selecting: nothing was captured
+[[ -s "$file" ]] || exit 0
+
+# Copy to the clipboard. The helper keeps owning the clipboard until
+# something else is copied (or 30 minutes pass), so pasting keeps working.
+setsid python3 - "$file" >/dev/null 2>&1 <<'PY' &
+import sys
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+
+clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+clipboard.set_image(GdkPixbuf.Pixbuf.new_from_file(sys.argv[1]))
+clipboard.store()
+GLib.timeout_add(1000, lambda: clipboard.connect("owner-change", lambda *a: Gtk.main_quit()) and False)
+GLib.timeout_add_seconds(1800, Gtk.main_quit)
+Gtk.main()
+PY
+
+# Notification with actions (runs in the background so the shortcut returns)
+(
+    action="$(notify-send --app-name="Screenshot" --icon="$file" \
+        --action=open="Open" --action=folder="Show in folder" \
+        "Screenshot copied" "Saved to ${dir/#$HOME/\~}" 2>/dev/null || true)"
+    case "$action" in
+        open)   xdg-open "$file" ;;
+        folder) nemo "$file" ;;
+    esac
+) >/dev/null 2>&1 &

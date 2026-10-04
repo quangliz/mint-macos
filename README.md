@@ -95,6 +95,14 @@ theme. Right-click an icon → **Keep in Dock** to pin it.
 | Ctrl+↓ | All workspaces |
 | Bottom-left corner | Mission Control |
 | Bottom-right corner | Show Desktop |
+| Super+Shift+S, Shift+PrtSc | Screenshot of an area |
+| PrtSc | Screenshot of the whole screen |
+| Alt+PrtSc | Screenshot of the active window |
+| Space (in Files) | Quick Look preview |
+
+Screenshots work like on Windows: the image is copied to the clipboard and saved
+to `~/Pictures/Screenshots`, and a notification offers **Open** and **Show in
+folder**. Window buttons sit on the left in macOS order (close, minimize, maximize).
 
 ## Optional: NVIDIA GPU off until you need CUDA
 
@@ -122,7 +130,7 @@ install.sh / uninstall.sh
 applets/        Cinnamon applets (copied to ~/.local/share/cinnamon/applets)
 plank/          Dock theme
 ulauncher/      Search theme and the clipboard-history extension
-bin/            Clipboard recorder (runs at login)
+bin/            Clipboard recorder, screenshot tool (snip), shortcut helper
 gpu/            Optional: NVIDIA GPU off until needed (gpu on/off)
 ```
 
