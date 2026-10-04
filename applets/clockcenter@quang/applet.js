@@ -323,6 +323,11 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
     }
 
     _unloadStylesheet() {
+        // Switching the Cinnamon theme (e.g. the Dark Mode tile, or WhiteSur)
+        // builds a new St.Theme and silently drops stylesheets added to the old
+        // one, so load ours again whenever that happens.
+        let themeContext = St.ThemeContext.get_for_stage(global.stage);
+        this._themeCtxId = themeContext.connect("changed", () => this._loadStylesheet());
         try {
             St.ThemeContext.get_for_stage(global.stage).get_theme().unload_stylesheet(this._stylesheet);
         } catch (e) {}
@@ -629,3 +634,4 @@ function main(metadata, orientation, panel_height, instance_id) {
     CinnamonCalendarApplet.prototype._meta_path = metadata.path;
     return new CinnamonCalendarApplet(orientation, panel_height, instance_id);
 }
+        if (this._themeCtxId) St.ThemeContext.get_for_stage(global.stage).disconnect(this._themeCtxId);

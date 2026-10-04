@@ -29,6 +29,13 @@ class AppName extends Applet.TextApplet {
         this.titleWin = null;
         this.titleId = 0;
         this.focusId = global.display.connect("notify::focus-window", () => this._update());
+        // The menu sizes its columns once; "Quit <App>" changes with the focused
+        // app, so lay it out again on every open or the label gets cut off ("Q…").
+        this.menu.connect("open-state-changed", (m, open) => {
+            if (!open) return;
+            for (let it of [this.hideItem, this.closeItem, this.quitItem]) it.actor.queue_relayout();
+            this.menu.box.queue_relayout();
+        });
         this._update();
     }
 
