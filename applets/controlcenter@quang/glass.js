@@ -126,9 +126,21 @@ var GlassBackdrop = class GlassBackdrop {
         for (let src of sources) {
             let clone = new Clutter.Clone({ source: src });
             this.layer.add_child(clone);
-            this._clones.push([clone, src]);
+            let entry = { clone, src, id: 0 };
+            // A window can close while the menu is open; touching its actor
+            // after that crashes Cinnamon, so drop the clone the moment it goes.
+            entry.id = src.connect("destroy", () => this._drop(entry));
+            this._clones.push(entry);
         }
         this._queueSync();
+    }
+
+    _drop(entry) {
+        let i = this._clones.indexOf(entry);
+        if (i === -1) return;
+        this._clones.splice(i, 1);
+        entry.src = null;
+        entry.clone.destroy();
     }
 
     // Position updates run after layout, never inside an allocation pass
@@ -144,14 +156,20 @@ var GlassBackdrop = class GlassBackdrop {
     _sync() {
         if (!this.layer) return;
         let [lx, ly] = this.layer.get_transformed_position();
-        for (let [clone, src] of this._clones) {
-            let [sx, sy] = src.get_transformed_position();
-            clone.set_position(Math.round(sx - lx), Math.round(sy - ly));
+        for (let entry of this._clones) {
+            if (!entry.src) continue;
+            let [sx, sy] = entry.src.get_transformed_position();
+            entry.clone.set_position(Math.round(sx - lx), Math.round(sy - ly));
         }
     }
 
     _clear() {
-        for (let [clone] of this._clones) clone.destroy();
+        for (let entry of this._clones) {
+            if (entry.src) {
+                try { entry.src.disconnect(entry.id); } catch (e) {}
+            }
+            entry.clone.destroy();
+        }
         this._clones = [];
     }
 
