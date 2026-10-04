@@ -113,7 +113,10 @@ var GlassBackdrop = class GlassBackdrop {
 
             menu._boxWrapper.insert_child_below(this.layer, menu.box);
             this._connect(menu._boxWrapper, "allocate", (actor, box, flags) => this._allocate(box, flags));
-            this._connect(menu, "open-state-changed", (m, open) => open ? this._build() : this._clear());
+            this._connect(menu, "open-state-changed", (m, open) => { if (open) this._build(); });
+            // The menu fades out after it closes; keep the glass until it's
+            // actually hidden so the background fades with the content
+            this._connect(menu.actor, "hide", () => this._clear());
             // the menu slides in; keep the clones lined up with the screen
             this._connect(menu.actor, "notify::x", () => this._queueSync());
             this._connect(menu.actor, "notify::y", () => this._queueSync());
