@@ -37,7 +37,7 @@ function icon(name, size) {
 function label(text, style, dim) {
     let l = new St.Label({ text, style: style || null });
     l.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-    if (dim) l.opacity = 165;   // works with both light and dark theme text
+    if (dim) l.opacity = Glass.TEXT.secondary;   // works with both light and dark theme text
     return l;
 }
 
@@ -57,7 +57,7 @@ class WeatherApplet extends Applet.TextIconApplet {
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
 
-        this.content = new St.BoxLayout({ vertical: true, style: "padding: 6px 14px; spacing: 12px; width: 330px;" });
+        this.content = new St.BoxLayout({ vertical: true, style: "padding: 4px 16px; spacing: 12px; width: 336px;" });
         this.menu.addActor(this.content);
         // Same glass and panes as the Control Center; redraw on a light/dark switch
         this._glass = new Glass.GlassBackdrop(this.menu, { radius: 20, gap: 6, padding: "10px 0",
@@ -188,32 +188,32 @@ class WeatherApplet extends Applet.TextIconApplet {
 
     // Search box at the top of the popup: Enter looks up the city and switches to it
     _buildSearch() {
-        let entry = new St.Entry({ hint_text: "Search city…", can_focus: true, x_expand: true,
-            style: "border-radius: 10px; padding: 5px 10px; background-color: rgba(128,128,128,0.18); border: none;" });
+        let entry = new St.Entry({ hint_text: "Search city", can_focus: true, x_expand: true,
+            style: "border-radius: 8px; padding: 4px 12px; background-color: rgba(128,128,128,0.18); border: none;" });
         entry.clutter_text.connect("activate", () => {
             let text = entry.get_text().trim();
             if (!text) return;
             entry.set_text("");
             entry.hint_text = "Searching…";
             this._geocode(text, place => {
-                entry.hint_text = "Search city…";
-                if (!place) { this.searchNote = `No place called "${text}" was found.`; this._render(); return; }
+                entry.hint_text = "Search city";
+                if (!place) { this.searchNote = `No place called "${text}"`; this._render(); return; }
                 this.searchNote = null;
                 this._setCity(text);
             });
         });
-        let row = new St.BoxLayout({ vertical: false, style: "spacing: 6px;" });
+        let row = new St.BoxLayout({ vertical: false, style: "spacing: 8px;" });
         row.add_child(entry);
         if ((this.city || "").trim()) {
             // back to automatic location
-            let auto = new St.Button({ reactive: true, track_hover: true, style: "padding: 4px 6px; border-radius: 8px;",
+            let auto = new St.Button({ reactive: true, track_hover: true, style: "padding: 4px; border-radius: 8px;",
                 child: new St.Icon({ icon_name: "find-location-symbolic", icon_type: St.IconType.SYMBOLIC, icon_size: 16 }) });
             auto.connect("clicked", () => this._setCity(""));
             new imports.ui.tooltips.Tooltip(auto, "Use my location");
             row.add_child(auto);
         }
         this.content.add_child(row);
-        if (this.searchNote) this.content.add_child(label(this.searchNote, "font-size: 9pt; color: #ff6961;"));
+        if (this.searchNote) this.content.add_child(label(this.searchNote, "font-size: 0.9em; color: #ff6961;"));
     }
 
     _hour(iso) {
@@ -247,17 +247,17 @@ class WeatherApplet extends Applet.TextIconApplet {
         // Header: place, big temperature, condition, high/low
         let header = new St.BoxLayout({ vertical: false, style: "spacing: 12px;" });
         let left = new St.BoxLayout({ vertical: true, x_expand: true });
-        left.add_child(label(this._placeName(), "font-weight: bold; font-size: 12pt;"));
-        left.add_child(label(deg(c.temperature_2m), "font-size: 34pt; font-weight: 300;"));
+        left.add_child(label(this._placeName(), "font-weight: 600; font-size: 1.15em;"));
+        left.add_child(label(deg(c.temperature_2m), "font-size: 3.4em; font-weight: 300; font-feature-settings: 'tnum';"));
         header.add_child(left);
         let right = new St.BoxLayout({ vertical: true, y_align: Clutter.ActorAlign.END, style: "spacing: 2px;" });
         let ic = icon(iconName, 32);
         ic.x_align = Clutter.ActorAlign.END;
         right.add_child(ic);
-        let cond = label(text, "font-weight: bold; text-align: right;");
+        let cond = label(text, "font-weight: 600; text-align: right;");
         cond.x_align = Clutter.ActorAlign.END;
         right.add_child(cond);
-        let hl = label(`H:${deg(day.temperature_2m_max[0])}  L:${deg(day.temperature_2m_min[0])}`, "text-align: right;", true);
+        let hl = label(`H:${deg(day.temperature_2m_max[0])}  L:${deg(day.temperature_2m_min[0])}`, "text-align: right; font-feature-settings: 'tnum';", true);
         hl.x_align = Clutter.ActorAlign.END;
         right.add_child(hl);
         header.add_child(right);
@@ -265,25 +265,25 @@ class WeatherApplet extends Applet.TextIconApplet {
 
         let wind = this.units === "fahrenheit" ? "mph" : "km/h";
         this.content.add_child(label(`Feels like ${deg(c.apparent_temperature)}  ·  Humidity ${c.relative_humidity_2m}%  ·  ` +
-                                     `Wind ${Math.round(c.wind_speed_10m)} ${wind}`, "font-size: 9pt;", true));
+                                     `Wind ${Math.round(c.wind_speed_10m)} ${wind}`, "font-size: 0.9em;", true));
 
         // Hourly strip
-        let hourly = new St.BoxLayout({ vertical: false, style: pane + " border-radius: 16px; padding: 10px 8px;" });
+        let hourly = new St.BoxLayout({ vertical: false, style: pane + " border-radius: 16px; padding: 12px 8px;" });
         let h = d.hourly;
         let step = 2;
         for (let i = 0; i <= HOURS && i < h.time.length; i += step) {
-            let col = new St.BoxLayout({ vertical: true, x_expand: true, style: "spacing: 6px;" });
-            let t = label(i === 0 ? "Now" : this._hour(h.time[i]), "font-size: 8.5pt; text-align: center;", true);
+            let col = new St.BoxLayout({ vertical: true, x_expand: true, style: "spacing: 4px;" });
+            let t = label(i === 0 ? "Now" : this._hour(h.time[i]), "font-size: 0.8em; text-align: center;", true);
             t.x_align = Clutter.ActorAlign.CENTER;
             col.add_child(t);
             let hi = icon(describe(h.weather_code[i], h.is_day[i])[0], 20);
             hi.x_align = Clutter.ActorAlign.CENTER;
             col.add_child(hi);
             let rain = h.precipitation_probability[i];
-            let rl = label(rain >= 20 ? `${rain}%` : " ", "font-size: 7.5pt; color: #5ac8fa; text-align: center;");
+            let rl = label(rain >= 20 ? `${rain}%` : " ", "font-size: 0.8em; color: #5ac8fa; text-align: center;");
             rl.x_align = Clutter.ActorAlign.CENTER;
             col.add_child(rl);
-            let tl = label(deg(h.temperature_2m[i]), "font-weight: bold; text-align: center;");
+            let tl = label(deg(h.temperature_2m[i]), "font-weight: 600; text-align: center; font-feature-settings: 'tnum';");
             tl.x_align = Clutter.ActorAlign.CENTER;
             col.add_child(tl);
             hourly.add_child(col);
@@ -291,39 +291,41 @@ class WeatherApplet extends Applet.TextIconApplet {
         this.content.add_child(hourly);
 
         // 7-day forecast with temperature range bars
-        let daily = new St.BoxLayout({ vertical: true, style: pane + " border-radius: 16px; padding: 8px 12px; spacing: 6px;" });
+        let daily = new St.BoxLayout({ vertical: true, style: pane + " border-radius: 16px; padding: 12px; spacing: 8px;" });
         let lo = Math.min(...day.temperature_2m_min), hi = Math.max(...day.temperature_2m_max);
-        const BAR = 90;
+        const BAR = 88;
         for (let i = 0; i < day.time.length; i++) {
             let row = new St.BoxLayout({ vertical: false, style: "spacing: 8px;" });
             let name = i === 0 ? "Today" : new Date(day.time[i] + "T12:00").toLocaleFormat("%a");
-            row.add_child(label(name, "width: 48px; font-weight: bold;"));
+            row.add_child(label(name, "width: 48px; font-weight: 600;"));
             let di = icon(describe(day.weather_code[i], 1)[0], 18);
             di.y_align = Clutter.ActorAlign.CENTER;
             row.add_child(di);
             let rain = day.precipitation_probability_max[i];
-            row.add_child(label(rain >= 20 ? `${rain}%` : "", "width: 34px; font-size: 8.5pt; color: #5ac8fa;"));
-            let min = label(deg(day.temperature_2m_min[i]), "width: 30px; text-align: right;", true);
+            row.add_child(label(rain >= 20 ? `${rain}%` : "", "width: 36px; font-size: 0.8em; color: #5ac8fa;"));
+            let min = label(deg(day.temperature_2m_min[i]), "width: 32px; text-align: right; font-feature-settings: 'tnum';", true);
             min.x_expand = true;
             row.add_child(min);
             // range bar: where this day's low..high sits within the week's range
             let span = Math.max(1, hi - lo);
             let start = Math.round((day.temperature_2m_min[i] - lo) / span * BAR);
-            let len = Math.max(6, Math.round((day.temperature_2m_max[i] - day.temperature_2m_min[i]) / span * BAR));
+            let len = Math.max(8, Math.round((day.temperature_2m_max[i] - day.temperature_2m_min[i]) / span * BAR));
             let track = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER,
                 style: `width: ${BAR}px; height: 4px; border-radius: 2px; background-color: rgba(128,128,128,0.30);` });
             track.add_child(new St.Widget({ style: `width: ${Math.min(start, BAR - len)}px;` }));
             track.add_child(new St.Widget({ style: `width: ${len}px; height: 4px; border-radius: 2px;` +
                 " background-gradient-direction: horizontal; background-gradient-start: #5ac8fa; background-gradient-end: #ff9f0a;" }));
             row.add_child(track);
-            row.add_child(label(deg(day.temperature_2m_max[i]), "width: 30px; text-align: right; font-weight: bold;"));
+            row.add_child(label(deg(day.temperature_2m_max[i]), "width: 32px; text-align: right; font-weight: 600; font-feature-settings: 'tnum';"));
             daily.add_child(row);
         }
         this.content.add_child(daily);
 
         let when = this.fetchedAt ? new Date(this.fetchedAt).toLocaleFormat("%H:%M") : "—";
-        this.content.add_child(label(`${this.failed ? "Offline · last update " : "Updated "}${when} · Open-Meteo`,
-                                     "font-size: 8pt; text-align: center;", true));
+        let source = label(`${this.failed ? "Offline · last update " : "Updated "}${when} · Open-Meteo`,
+                           "font-size: 0.8em; text-align: center;");
+        source.opacity = Glass.TEXT.muted;
+        this.content.add_child(source);
     }
 }
 

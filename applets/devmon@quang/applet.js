@@ -60,13 +60,21 @@ class DeviceMonitor extends Applet.TextIconApplet {
         // With mint-macos/gpu installed: turn the GPU on for CUDA, fully off otherwise
         this.gpuToggle = this.menu.addAction("", () => this._toggleGpu());
         this.gpuToggle.actor.hide();
-        this.menu.connect("open-state-changed", (m, open) => { if (open) this._updateGpuToggle(); });
+        // The popup rows are only filled in while it's open; closed, we read just
+        // what the panel shows
+        this.menu.connect("open-state-changed", (m, open) => {
+            if (!open) return;
+            this._updateGpuToggle();
+            this._update();
+            this._pollGpu();
+        });
 
         this.prevCpu = null;
         this.prevNet = null;
         this.nvsmi = GLib.find_program_in_path("nvidia-smi");
         this.gpu = null;
         this.gpuBusy = false;
+        this.cuda = undefined;   // CUDA version, asked once per driver load
         if (!this.nvsmi) this.rows.gpu.item.actor.hide();
 
         // We show the PRIME GPU mode in the CUDA section, so hide the
@@ -117,6 +125,7 @@ class DeviceMonitor extends Applet.TextIconApplet {
                 if (!p.get_successful() && out && !/dismissed|Not authorized/i.test(out))
                     Main.notify("GPU", out.trim().split("\n").slice(0, 4).join("\n"));
                 this.gpu = null;
+                this.cuda = undefined;
                 this._pollGpu();
                 this._updateGpuToggle();
             });
@@ -155,7 +164,7 @@ class DeviceMonitor extends Applet.TextIconApplet {
     }
 
     // ---- data readers ----
-    _cpu() {
+    _cpu(full) {
         let lines = (readFile("/proc/stat") || "").split("\n");
         let parse = l => l.split(/\s+/).slice(1).map(Number);
         let now = lines.filter(l => /^cpu\d*\s/.test(l)).map(parse);
@@ -169,12 +178,12 @@ class DeviceMonitor extends Applet.TextIconApplet {
         }
         this.prevCpu = now;
         let freqs = [];
-        for (let i = 0; i < now.length - 1; i++) {
+        for (let i = 0; full && i < now.length - 1; i++) {
             let f = readFile(`/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq`);
             if (f) freqs.push(Number(f));
         }
         let avgFreq = freqs.length ? freqs.reduce((a, b) => a + b, 0) / freqs.length / 1e6 : 0;
-        let load = (readFile("/proc/loadavg") || "").split(" ").slice(0, 3).join(" ");
+        let load = full ? (readFile("/proc/loadavg") || "").split(" ").slice(0, 3).join(" ") : "";
         return { total: usage[0] ?? 0, cores: usage.slice(1), freq: avgFreq, load };
     }
 
@@ -265,9 +274,25 @@ class DeviceMonitor extends Applet.TextIconApplet {
         }
     }
 
-    // Runs nvidia-smi asynchronously so the panel never blocks on it.
+    // Runs a command asynchronously so the panel never blocks on it
+    _run(argv, cb) {
+        try {
+            let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                let out = null;
+                try { [, out] = p.communicate_utf8_finish(res); } catch (e) {}
+                cb(p.get_successful() ? out || "" : null);
+            });
+        } catch (e) {
+            cb(null);
+        }
+    }
+
+    // One nvidia-smi run for the panel; the process list (and, once, the CUDA
+    // version) only while the popup is open. Nothing at all if neither shows it.
     _pollGpu() {
-        if (this.gpuBusy) return;
+        let open = this.menu.isOpen;
+        if (this.gpuBusy || !(open || this.show_gpu)) return;
         let pci = this._gpuPciPath();
         if (!pci) { this.gpu = { state: "no-driver" }; return; }
         // Don't wake a runtime-suspended GPU just to read its stats
@@ -275,35 +300,34 @@ class DeviceMonitor extends Applet.TextIconApplet {
 
         this.gpuBusy = true;
         let fields = "name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm,pstate";
-        let cmd = `${this.nvsmi} --query-gpu=${fields} --format=csv,noheader,nounits && echo --- && ` +
-                  `${this.nvsmi} --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits && echo --- && ` +
-                  `${this.nvsmi} --version | grep -i cuda`;
-        try {
-            let proc = Gio.Subprocess.new(["sh", "-c", cmd], Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
-            proc.communicate_utf8_async(null, null, (p, res) => {
-                this.gpuBusy = false;
-                try {
-                    let [, out] = p.communicate_utf8_finish(res);
-                    let [gpuPart, appPart, verPart] = (out || "").split("---\n");
-                    let f = (gpuPart || "").trim().split("\n")[0].split(",").map(x => x.trim());
-                    if (f.length < 9) { this.gpu = { state: "error" }; return; }
-                    let num = x => (isNaN(Number(x)) ? null : Number(x));
-                    let apps = (appPart || "").trim().split("\n").filter(l => l.trim()).map(l => {
+        this._run([this.nvsmi, `--query-gpu=${fields}`, "--format=csv,noheader,nounits"], out => {
+            let f = (out || "").trim().split("\n")[0].split(",").map(x => x.trim());
+            if (f.length < 9) { this.gpuBusy = false; this.gpu = { state: "error" }; return; }
+            let num = x => (isNaN(Number(x)) ? null : Number(x));
+            let prev = this.gpu && this.gpu.state === "ok" ? this.gpu.apps : [];
+            this.gpu = { state: "ok", name: f[0], util: num(f[1]), memUtil: num(f[2]),
+                         memUsed: num(f[3]), memTotal: num(f[4]), temp: num(f[5]),
+                         power: num(f[6]), clock: num(f[7]), pstate: f[8], apps: prev };
+            if (!this.menu.isOpen) { this.gpuBusy = false; return; }
+
+            this._run([this.nvsmi, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"], out => {
+                if (out !== null && this.gpu.state === "ok")
+                    this.gpu.apps = out.trim().split("\n").filter(l => l.trim()).map(l => {
                         let [pid, name, mem] = l.split(",").map(x => x.trim());
                         return { pid, name: GLib.path_get_basename(name), mem: num(mem) };
                     });
-                    let cuda = ((verPart || "").match(/CUDA Version\s*:?\s*([\d.]+)/i) || [])[1];
-                    this.gpu = { state: "ok", name: f[0], util: num(f[1]), memUtil: num(f[2]),
-                                 memUsed: num(f[3]), memTotal: num(f[4]), temp: num(f[5]),
-                                 power: num(f[6]), clock: num(f[7]), pstate: f[8], apps, cuda };
-                } catch (e) {
-                    this.gpu = { state: "error" };
-                }
+                if (this.cuda !== undefined) { this.gpuBusy = false; this._refreshGpuRow(); return; }
+                this._run([this.nvsmi, "--version"], out => {
+                    this.gpuBusy = false;
+                    this.cuda = ((out || "").match(/CUDA Version\s*:?\s*([\d.]+)/i) || [])[1] || null;
+                    this._refreshGpuRow();
+                });
             });
-        } catch (e) {
-            this.gpuBusy = false;
-            this.gpu = { state: "error" };
-        }
+        });
+    }
+
+    _refreshGpuRow() {
+        if (this.menu.isOpen) this._setRow("gpu", this._gpuText());
     }
 
     _queryPrime() {
@@ -334,7 +358,7 @@ class DeviceMonitor extends Applet.TextIconApplet {
         if (g.state !== "ok") return "nvidia-smi failed";
         let memPct = g.memTotal ? 100 * g.memUsed / g.memTotal : 0;
         let lines = [
-            `${g.name}${g.cuda ? "   CUDA " + g.cuda : ""}`,
+            `${g.name}${this.cuda ? "   CUDA " + this.cuda : ""}`,
             `util ${bar(g.util ?? 0)} ${g.util ?? "?"}%`,
             `vram ${bar(memPct)} ${g.memUsed} / ${g.memTotal} MiB`,
             `${g.temp ?? "?"}°C   ${g.power != null ? g.power.toFixed(1) + " W" : "? W"}   ${g.clock ?? "?"} MHz   ${g.pstate}`,
@@ -351,10 +375,18 @@ class DeviceMonitor extends Applet.TextIconApplet {
     }
 
     // ---- render ----
+    _setPanel(label, tooltip, style) {
+        if (label !== this._panelLabel) this.set_applet_label(this._panelLabel = label);
+        if (tooltip !== this._panelTip) this.set_applet_tooltip(this._panelTip = tooltip);
+        if (style !== this._panelStyle) this._applet_label.style = this._panelStyle = style;
+    }
+
     _update() {
         try {
-            let cpu = this._cpu(), mem = this._mem(), temps = this._temps();
-            let net = this._net(), disk = this._disk(), bat = this._battery();
+            let full = this.menu.isOpen;
+            let cpu = this._cpu(full), mem = this._mem();
+            let temps = full || this.show_temp ? this._temps() : [];
+            let net = this._net();
             let cpuTemp = temps.find(t => /k10temp|coretemp|zenpower|cpu/i.test(t.name));
             let hot = cpuTemp && cpuTemp.c >= this.warn_temp;
 
@@ -366,12 +398,13 @@ class DeviceMonitor extends Applet.TextIconApplet {
             let g = this.gpu;
             if (this.show_gpu && g && g.state === "ok") parts.push(v ? `G${g.util}` : `GPU ${g.util}%`);
             if (this.show_net) parts.push(v ? `↓${fmtBytes(net.down)}\n↑${fmtBytes(net.up)}` : `↓${fmtBytes(net.down)} ↑${fmtBytes(net.up)}`);
-            this.set_applet_label(parts.join(v ? "\n" : "  "));
-            this.set_applet_tooltip(`CPU ${cpu.total.toFixed(0)}%  RAM ${mem.pct.toFixed(0)}%` +
+            this._setPanel(parts.join(v ? "\n" : "  "), `CPU ${cpu.total.toFixed(0)}%  RAM ${mem.pct.toFixed(0)}%` +
                 (cpuTemp ? `  ${cpuTemp.c.toFixed(0)}°C` : "") +
-                (g && g.state === "ok" ? `\nGPU ${g.util}%  VRAM ${g.memUsed}/${g.memTotal} MiB  ${g.temp}°C` : "") + `\n↓${fmtBytes(net.down)}/s ↑${fmtBytes(net.up)}/s`);
-            this._applet_label.style = (v ? "font-size: 8pt; text-align: center;" : "") +
-                (hot ? "color: #ff5555; font-weight: bold;" : "");
+                (g && g.state === "ok" ? `\nGPU ${g.util}%  VRAM ${g.memUsed}/${g.memTotal} MiB  ${g.temp}°C` : "") + `\n↓${fmtBytes(net.down)}/s ↑${fmtBytes(net.up)}/s`,
+                (v ? "font-size: 8pt; text-align: center;" : "") + (hot ? "color: #ff5555; font-weight: bold;" : ""));
+            if (!full) return;
+
+            let disk = this._disk(), bat = this._battery();
 
             let cores = cpu.cores.map((c, i) => `${String(i).padStart(2)} ${bar(c, 10)} ${String(Math.round(c)).padStart(3)}%`);
             let coreLines = [];

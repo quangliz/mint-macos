@@ -142,7 +142,7 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         this._upNext.destroy_all_children();
         if (!this.events_manager.is_active()) { this._upNext.hide(); return; }
         this._upNext.show();
-        this._upNext.add_child(new St.Label({ text: _("Up Next"), style_class: "ccn-upnext-title" }));
+        this._upNext.add_child(new St.Label({ text: _("Up next"), style_class: "ccn-upnext-title" }));
 
         // events_by_date covers the month on screen plus its edge weeks; the
         // calendar resets to today whenever the panel opens
@@ -168,10 +168,10 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
             let when = days <= 0 ? _("Today") : days === 1 ? _("Tomorrow") : ev.start.format("%a %-d %b");
             let time = ev.all_day ? _("All day") : ev.start.format("%H:%M") + "–" + ev.end.format("%H:%M");
             let row = new St.Button({ reactive: true, track_hover: true, style_class: "ccn-event-row", x_fill: true });
-            let box = new St.BoxLayout({ vertical: false, style: "spacing: 10px;" });
+            let box = new St.BoxLayout({ vertical: false, style: "spacing: 8px;" });
             box.add_child(new St.Widget({ style_class: "ccn-upnext-bar", style: `background-color: ${ev.color || "#1f9ede"};` }));
             let col = new St.BoxLayout({ vertical: true, x_expand: true });
-            let title = new St.Label({ text: ev.summary || "", style: "font-weight: bold;" });
+            let title = new St.Label({ text: ev.summary || "", style: "font-weight: 600;" });
             title.clutter_text.ellipsize = imports.gi.Pango.EllipsizeMode.END;
             col.add_child(title);
             col.add_child(new St.Label({ text: `${when} · ${time}`, style_class: "ccn-upnext-when" }));
@@ -268,12 +268,12 @@ class CinnamonCalendarApplet extends Applet.TextApplet {
         let header = new St.BoxLayout({ vertical: false, style_class: "ccn-header" });
         header.add_child(new St.Label({ text: _("Notifications"), x_expand: true,
                                         y_align: Clutter.ActorAlign.CENTER, style_class: "ccn-title" }));
-        this._clearBtn = new St.Button({ label: _("Clear All"), reactive: true, track_hover: true, style_class: "ccn-pill" });
+        this._clearBtn = new St.Button({ label: _("Clear all"), reactive: true, track_hover: true, style_class: "ccn-pill" });
         this._clearBtn.connect("clicked", () => this._clearNotifications());
         header.add_child(this._clearBtn);
         section.add_child(header);
 
-        this._emptyLabel = new St.Label({ text: _("No Notifications"), x_align: Clutter.ActorAlign.CENTER,
+        this._emptyLabel = new St.Label({ text: _("No notifications"), x_align: Clutter.ActorAlign.CENTER,
                                           style_class: "ccn-empty" });
         section.add_child(this._emptyLabel);
 

@@ -13,6 +13,10 @@ const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 
+// Text roles on the glass, as actor opacity over the theme's own text colour,
+// so they work on light and dark glass alike. (ccn.css uses the same steps.)
+var TEXT = { secondary: 158, muted: 107 };
+
 // Glossy panes on the glass, for dark and light themes. Text colour comes
 // from the Cinnamon theme itself. (ccn.css has the same colours for the clock.)
 function palette(light) {
@@ -22,7 +26,7 @@ function palette(light) {
         pane: hover => sheen(hover ? 0.88 : 0.72, hover ? 0.68 : 0.48) + " border: 1px solid rgba(255,255,255,0.80);",
         circle: "background-color: rgba(0,0,0,0.08);",
     } : {
-        pane: hover => sheen(hover ? 0.22 : 0.15, hover ? 0.12 : 0.06) + " border: 1px solid rgba(255,255,255,0.12);",
+        pane: hover => sheen(hover ? 0.22 : 0.15, hover ? 0.12 : 0.06) + " border: 1px solid rgba(255,255,255,0.08);",
         circle: "background-color: rgba(255,255,255,0.14);",
     };
 }

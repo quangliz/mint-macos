@@ -51,7 +51,7 @@ const MprisAppProxy = Gio.DBusProxy.makeProxyWrapper(`<node>
 </node>`);
 
 // Now Playing album art
-const ART_STYLE = "width: 72px; height: 72px; border-radius: 12px;";
+const ART_STYLE = "width: 72px; height: 72px; border-radius: 8px;";
 // Fades a sliding line out at the edge(s) where text is cut off
 const EDGE_FADE = `
 uniform sampler2D tex;
@@ -103,14 +103,15 @@ class Tile {
     constructor(iconName, title, onClick) {
         this.actor = new St.Button({ reactive: true, can_focus: true, track_hover: true, x_expand: true });
         // Left-align tile contents so icons line up in a column
-        let box = new St.BoxLayout({ vertical: false, style: "spacing: 10px;", x_expand: true,
+        let box = new St.BoxLayout({ vertical: false, style: "spacing: 8px;", x_expand: true,
                                      x_align: Clutter.ActorAlign.FILL });
-        this.iconBin = new St.Bin({ style: "border-radius: 99px; padding: 7px;" });
+        this.iconBin = new St.Bin({ style: "border-radius: 16px; padding: 8px;" });
         this.icon = new St.Icon({ icon_name: iconName, icon_type: St.IconType.SYMBOLIC, icon_size: 16 });
         this.iconBin.set_child(this.icon);
         let labels = new St.BoxLayout({ vertical: true, y_align: Clutter.ActorAlign.CENTER });
-        this.title = new St.Label({ text: title, style: "font-weight: bold;" });
-        this.sub = new St.Label({ text: "", style: "font-size: 8.5pt; opacity: 0.75;" });
+        this.title = new St.Label({ text: title, style: "font-weight: 600;" });
+        this.sub = new St.Label({ text: "", style: "font-size: 0.8em;" });
+        this.sub.opacity = Glass.TEXT.secondary;
         labels.add_child(this.title);
         labels.add_child(this.sub);
         box.add_child(this.iconBin);
@@ -132,8 +133,8 @@ class Tile {
 
     _style() {
         // glass pane: soft sheen, brighter at the top like light on glass
-        this.actor.style = GLASS.pane(this.actor.hover) + " border-radius: 16px; padding: 8px 10px; width: 150px;";
-        this.iconBin.style = "border-radius: 99px; padding: 7px; " +
+        this.actor.style = GLASS.pane(this.actor.hover) + " border-radius: 16px; padding: 8px 12px; width: 152px;";
+        this.iconBin.style = "border-radius: 16px; padding: 8px; " +
             (this.active ? `background-color: ${ACCENT}; color: white;` : GLASS.circle);
     }
 }
@@ -143,11 +144,15 @@ class ControlCenter extends Applet.TextIconApplet {
         super(orientation, panelHeight, instanceId);
         this.set_applet_icon_symbolic_path(metadata.path + "/icon-symbolic.svg");
         this.set_applet_tooltip("Control Center");
-        this._alertDot = new St.Label({ text: "●", visible: false, y_align: Clutter.ActorAlign.CENTER,
-                                        style: "color: #ff9f0a; font-size: 8pt; padding: 0 3px 0 4px;" });
+        this._alertDot = new St.Widget({ visible: false, y_align: Clutter.ActorAlign.CENTER,
+            style: "width: 6px; height: 6px; border-radius: 3px; margin: 0 4px; background-color: #ff9f0a;" });
+        this._chargeIcon = new St.Icon({ icon_name: "battery-full-charging-symbolic", icon_type: St.IconType.SYMBOLIC,
+                                         icon_size: 16, visible: false, y_align: Clutter.ActorAlign.CENTER,
+                                         style: "margin-right: 2px;" });
         // The label sits inside its own bin; put the dot just before that bin
         let labelBin = this._applet_label.get_parent();
         this.actor.insert_child_below(this._alertDot, labelBin.get_parent() === this.actor ? labelBin : null);
+        this.actor.insert_child_below(this._chargeIcon, labelBin.get_parent() === this.actor ? labelBin : null);
         this._updatePanelBattery();
         this._batteryTimer = Mainloop.timeout_add_seconds(30, () => { this._updatePanelBattery(); return true; });
 
@@ -245,7 +250,7 @@ class ControlCenter extends Applet.TextIconApplet {
     }
 
     _styleFooterBtn(b) {
-        b.style = "border-radius: 99px; padding: 8px; " + GLASS.pane(b.hover);
+        b.style = "border-radius: 16px; padding: 8px; " + GLASS.pane(b.hover);
     }
 
     // Runs once everything is built, then on every light/dark switch
@@ -253,7 +258,7 @@ class ControlCenter extends Applet.TextIconApplet {
         if (!this._glass) return;
         GLASS = Glass.palette(this._glass.light);
         for (let t of this.tiles) t._style();
-        this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 12px; spacing: 14px;";
+        this.mediaCard.style = GLASS.pane(false) + " border-radius: 16px; padding: 12px; spacing: 12px;";
         for (let b of this._footerBtns) this._styleFooterBtn(b);
     }
 
@@ -267,8 +272,9 @@ class ControlCenter extends Applet.TextIconApplet {
 
         let text = new St.BoxLayout({ vertical: true, x_expand: true, reactive: true, track_hover: true,
                                       y_align: Clutter.ActorAlign.CENTER });
-        this.mediaTitle = new St.Label({ style: "font-weight: bold; font-size: 11.5pt;" });
-        this.mediaArtist = new St.Label({ style: "font-size: 10pt; opacity: 0.7;" });
+        this.mediaTitle = new St.Label({ style: "font-weight: 600; font-size: 1.15em;" });
+        this.mediaArtist = new St.Label();
+        this.mediaArtist.opacity = Glass.TEXT.secondary;
         // Each line sits in a clipped strip that asks for no width of its own,
         // so a long title can't widen the panel; it slides instead (_marquee)
         for (let l of [this.mediaTitle, this.mediaArtist]) {
@@ -301,7 +307,7 @@ class ControlCenter extends Applet.TextIconApplet {
         let mkBtn = (icon, action, size = 22) => {
             let b = new St.Button({ reactive: true, track_hover: true,
                 child: new St.Icon({ gicon: this._mediaIcon(icon), icon_type: St.IconType.SYMBOLIC, icon_size: size }) });
-            let style = () => b.style = "padding: 6px; border-radius: 99px;" +
+            let style = () => b.style = `padding: 6px; border-radius: ${size / 2 + 6}px;` +
                 (b.hover ? " background-color: rgba(128,128,128,0.3);" : "");
             b.connect("notify::hover", style);
             style();
@@ -871,14 +877,14 @@ class ControlCenter extends Applet.TextIconApplet {
     // ---------- sliders ----------
     _makeSlider(iconName) {
         let slider = new PopupMenu.PopupSliderMenuItem(0);
-        // 30px wide, like the tile icon circles, so icons share one column
-        let btn = new St.Button({ reactive: true, style: "padding: 0 0 0 10px; width: 30px;" });
+        // 32px wide, like the tile icon circles, so icons share one column
+        let btn = new St.Button({ reactive: true, style: "padding: 0 0 0 12px; width: 32px;" });
         let icon = new St.Icon({ icon_name: iconName, icon_type: St.IconType.SYMBOLIC, icon_size: 16 });
         btn.set_child(icon);
         slider.removeActor(slider._slider);
-        slider.pct = new St.Label({ text: "", style: "min-width: 3.4em; text-align: right; font-size: 9pt;",
+        slider.pct = new St.Label({ text: "", style: "min-width: 3.4em; text-align: right; font-size: 0.9em; font-feature-settings: 'tnum';",
                                     y_align: Clutter.ActorAlign.CENTER });
-        let box = new St.BoxLayout({ vertical: false, x_expand: true, style: "spacing: 10px;" });
+        let box = new St.BoxLayout({ vertical: false, x_expand: true, style: "spacing: 8px;" });
         slider._slider.x_expand = true;
         box.add_child(btn);
         box.add_child(slider._slider);
@@ -1101,7 +1107,9 @@ class ControlCenter extends Applet.TextIconApplet {
             if (!nets) sub.addMenuItem(new PopupMenu.PopupMenuItem("Wi-Fi is off", { reactive: false }));
             else if (!nets.length) sub.addMenuItem(new PopupMenu.PopupMenuItem("No networks found", { reactive: false }));
             for (let n of nets || []) {
-                let item = new PopupMenu.PopupIconMenuItem((n.inUse ? "✓ " : "") + n.ssid, n.icon, St.IconType.SYMBOLIC);
+                let item = new PopupMenu.PopupIconMenuItem(n.ssid, n.icon, St.IconType.SYMBOLIC);
+                if (n.inUse) item.addActor(new St.Icon({ icon_name: "object-select-symbolic", icon_type: St.IconType.SYMBOLIC,
+                                                         style_class: "popup-menu-icon" }), { align: St.Align.END });
                 item.connect("activate", () => {
                     if (n.inUse) return;
                     this.wifiTile.set(true, "Connecting…");
@@ -1211,8 +1219,8 @@ class ControlCenter extends Applet.TextIconApplet {
         if (!b) { this.hide_applet_label(true); return null; }
         this.hide_applet_label(false);
         let charging = b.status === "Charging";
-        let text = (charging ? "⚡" : "") + b.cap + "%";
-        this.set_applet_label(text);
+        this._chargeIcon.visible = charging;
+        this.set_applet_label(b.cap + "%");
         this._applet_label.style = !charging && b.cap <= 20 ? "color: #ff5f57;" : null;
 
         this.set_applet_tooltip(`Control Center\nBattery ${b.cap}% — ${b.status}`);
@@ -1228,7 +1236,7 @@ class ControlCenter extends Applet.TextIconApplet {
     // ---------- footer ----------
     _buildFooter() {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        let row = new St.BoxLayout({ vertical: false, style: "spacing: 6px;", x_expand: true });
+        let row = new St.BoxLayout({ vertical: false, style: "spacing: 8px;", x_expand: true });
         this._footerBtns = [];
         let buttons = [
             ["preferences-system-symbolic", "Settings", "cinnamon-settings"],
@@ -1256,8 +1264,8 @@ class ControlCenter extends Applet.TextIconApplet {
     _addTipAbove(button, text) {
         let Main = imports.ui.main;
         let tip = new St.Label({ text, visible: false,
-            style: "background-color: rgba(20,20,20,0.92); color: #eee; border: 1px solid rgba(255,255,255,0.12);" +
-                   "border-radius: 6px; padding: 4px 8px; font-size: 9pt;" });
+            style: "background-color: rgba(20,20,20,0.92); color: #eee; border: 1px solid rgba(255,255,255,0.08);" +
+                   "border-radius: 8px; padding: 4px 8px; font-size: 0.9em;" });
         Main.uiGroup.add_child(tip);
         button.connect("notify::hover", () => {
             if (!button.hover) { tip.hide(); return; }
